@@ -28,7 +28,6 @@ COPY --from=build /app/drizzle ./drizzle
 RUN mkdir -p /data && chown -R node:node /data /app
 USER node
 # SQLite database and attachments live here: mount a persistent volume.
-VOLUME ["/data"]
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
   CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
