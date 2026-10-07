@@ -73,6 +73,11 @@ npm run typecheck
 npm run build && npm start
 ```
 
+### Deploying
+
+See **[DEPLOY.md](DEPLOY.md)**. In short: `docker compose up -d --build`, with a persistent
+volume at `/data`, HTTPS in front, and `GET /api/health` as the health check.
+
 After changing `src/lib/db/schema.ts`, run `npm run db:generate` to create a migration.
 
 ## Architecture

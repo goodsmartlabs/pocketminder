@@ -1,0 +1,14 @@
+# docker compose up -d   →  http://localhost:3000
+services:
+  pocketminder:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      CRON_SECRET: ${CRON_SECRET:-change-me}
+      # COOKIE_SECURE: "false"   # only if serving over plain HTTP
+    volumes:
+      - pocketminder-data:/data
+volumes:
+  pocketminder-data:
