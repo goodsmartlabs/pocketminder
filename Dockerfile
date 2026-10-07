@@ -26,9 +26,9 @@ COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
 COPY --from=build /app/drizzle ./drizzle
 RUN mkdir -p /data && chown -R node:node /data /app
-USER node
+# Initialize mounted volume ownership, then drop privileges before starting the app.
 # SQLite database and attachments live here: mount a persistent volume.
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
   CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "server.js"]
+CMD ["node","-e","const fs=require('node:fs');const data=process.env.POCKETMINDER_DATA_DIR||'/data';fs.mkdirSync(data,{recursive:true});fs.chownSync(data,1000,1000);process.setgid(1000);process.setuid(1000);require('./server.js');"]
