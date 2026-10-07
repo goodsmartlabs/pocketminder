@@ -9,7 +9,8 @@ export function GET() {
   try {
     getDb().run(sql`select 1`);
     return NextResponse.json({ status: "ok" });
-  } catch {
+  } catch (error) {
+    console.error("PocketMinder database health check failed", error);
     return NextResponse.json({ status: "error" }, { status: 503 });
   }
 }
