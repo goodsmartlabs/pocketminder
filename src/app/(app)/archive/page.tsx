@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Suspense } from "react";
 import { EmptyNote, ReminderList } from "@/components/reminders/display";
 import { RegisterControls } from "@/components/reminders/RegisterControls";
@@ -26,7 +27,7 @@ export default async function ArchivePage({
   const parsed = parseRegisterQuery(raw);
   const view = ARCHIVE_VIEWS.some((v) => v.value === parsed.view) ? parsed.view : "archived";
   const query = { ...parsed, view, sort: raw.sort ? parsed.sort : ("furthest" as const) };
-  const all = listReminders(user.id, today, { lifecycles: ["archived", "resolved", "renewed"] });
+  const all = listReminders(user.id, today, {includeArchivedSpaces:true, lifecycles: ["archived", "resolved", "renewed"] });
   const results = applyRegister(all, query);
   const counts: Record<string, number> = {};
   for (const v of ARCHIVE_VIEWS) {
@@ -38,6 +39,7 @@ export default async function ArchivePage({
 
   return (
     <div className="animate-fade-up">
+      <Link href="/spaces?archived=1" className="mb-4 block text-accent">Archived Minder Spaces →</Link>
       <PageHeader
         title="Archive"
         subtitle="Past periods, resolved dates and anything you've put away. Nothing is lost."

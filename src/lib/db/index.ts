@@ -21,6 +21,13 @@ function open(): DB {
   sqlite.pragma("foreign_keys = ON");
   sqlite.pragma("busy_timeout = 5000");
   const db = drizzle(sqlite, { schema });
+  // Keep a consistent recovery copy before upgrading an existing pre-Spaces database.
+  const hasUsers = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
+  const hasSpaces = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='spaces'").get();
+  const backupPath = path.join(path.dirname(DB_PATH), "pre-spaces-backup.db");
+  if (hasUsers && !hasSpaces && !fs.existsSync(backupPath)) {
+    sqlite.prepare("VACUUM INTO ?").run(backupPath);
+  }
   migrate(db, { migrationsFolder: path.join(process.cwd(), "drizzle") });
   return db;
 }

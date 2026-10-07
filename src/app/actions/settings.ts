@@ -1,4 +1,5 @@
 "use server";
+import { getSpace } from "@/server/spaces";
 
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -113,15 +114,16 @@ function slugify(name: string): string {
   );
 }
 
-export async function addCategoryAction(name: string): Promise<ActionResult> {
+export async function addCategoryAction(name: string, spaceId: string): Promise<ActionResult> {
   const user = await requireUser();
+  try { if(getSpace(user.id,spaceId).status!=="active")throw new Error(); }catch{return {ok:false,error:"Choose an active Minder Space."};}
   const parsed = categorySchema.safeParse({ name });
   if (!parsed.success) return { ok: false, error: fieldErrors(parsed.error).name };
   const db = getDb();
   const existing = db
     .select()
     .from(schema.categories)
-    .where(eq(schema.categories.userId, user.id))
+    .where(and(eq(schema.categories.userId,user.id),eq(schema.categories.spaceId,spaceId)))
     .all();
   const slug = slugify(parsed.data.name);
   if (existing.some((c) => c.slug === slug || c.name.toLowerCase() === parsed.data.name.toLowerCase()))
@@ -130,6 +132,7 @@ export async function addCategoryAction(name: string): Promise<ActionResult> {
   db.insert(schema.categories)
     .values({
       userId: user.id,
+      spaceId,
       name: parsed.data.name,
       slug,
       color: CATEGORY_COLORS[existing.length % CATEGORY_COLORS.length],
@@ -155,7 +158,7 @@ export async function deleteCategoryAction(id: string): Promise<ActionResult> {
   const custom = db
     .select()
     .from(schema.categories)
-    .where(and(eq(schema.categories.userId, user.id), eq(schema.categories.slug, "custom")))
+    .where(and(eq(schema.categories.userId, user.id), eq(schema.categories.slug, "custom"),eq(schema.categories.spaceId,cat.spaceId)))
     .get();
   db.transaction((tx) => {
     // Reminders in this category move to "Custom" rather than losing a category.

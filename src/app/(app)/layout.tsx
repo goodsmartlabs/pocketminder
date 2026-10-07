@@ -1,3 +1,4 @@
+import { listSpaces } from "@/server/spaces";
 import { Suspense } from "react";
 import { requireUser } from "@/lib/auth";
 import { todayISO } from "@/lib/dates";
@@ -22,6 +23,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         timezone: user.timezone,
         dayFirst: settings.dayFirst,
         categories,
+        spaces: listSpaces(user.id),
         defaultOffsets: settings.defaultOffsets,
         browserNotifications: settings.browserEnabled,
       }}

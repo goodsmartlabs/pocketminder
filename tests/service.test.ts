@@ -11,6 +11,7 @@ type Notif = typeof import("@/server/notifications");
 let svc: Svc;
 let notif: Notif;
 let userId: string;
+let spaceId: string;
 
 beforeAll(async () => {
   svc = await import("@/server/reminders");
@@ -22,9 +23,11 @@ beforeAll(async () => {
     .returning()
     .get().id;
   svc.ensureUserSetup(userId);
+  spaceId=(await import("@/server/spaces")).createSpace(userId,{name:"Work",icon:"briefcase",color:"#48786c"});
 });
 
 const input = (over: Record<string, unknown> = {}) => ({
+  spaceId,
   title: "Visa",
   importantDate: "2026-11-14",
   categoryId: null,
@@ -103,4 +106,39 @@ describe("reminder lifecycle", () => {
     const id = svc.createReminder(userId, input(), "2026-10-07");
     expect(() => svc.getReminderDetail("someone-else", id, "2026-10-07")).toThrow(svc.NotFoundError);
   });
+});
+
+describe("Minder Spaces", () => {
+ it("rejects another user's Space and categories from another Space", async()=>{
+  const spaces=await import("@/server/spaces");const {getDb,schema}=await import("@/lib/db");
+  const other=getDb().insert(schema.users).values({email:"other@example.com",name:"Other",passwordHash:"x"}).returning().get();
+  const foreign=spaces.createSpace(other.id,{name:"Private"});
+  expect(()=>svc.createReminder(userId,input({spaceId:foreign}),"2026-10-07")).toThrow();
+  const second=spaces.createSpace(userId,{name:"Personal"});
+  const category=svc.listCategories(userId,second)[0];
+  expect(()=>svc.createReminder(userId,input({categoryId:category.id}),"2026-10-07")).toThrow();
+ });
+ it("scopes reads, pauses archived Spaces and preserves renewal history when moved",async()=>{
+  const spaces=await import("@/server/spaces");const source=spaces.createSpace(userId,{name:"Project"});
+  const category=svc.listCategories(userId,source)[0];
+  const id=svc.createReminder(userId,input({spaceId:source,categoryId:category.id}),"2026-10-07");
+  const next=svc.renewReminder(userId,id,"2027-11-14",null,"2026-10-07");
+  expect(svc.listReminders(userId,"2026-10-07",{spaceId:source})).toHaveLength(2);
+  spaces.archiveSpace(userId,source,true);
+  expect(svc.listReminders(userId,"2026-10-07",{spaceId:source})).toHaveLength(0);
+  expect(svc.listReminders(userId,"2026-10-07",{spaceId:source,includeArchivedSpaces:true})).toHaveLength(2);
+  expect(()=>svc.createReminder(userId,input({spaceId:source}),"2026-10-07")).toThrow();
+  spaces.archiveSpace(userId,source,false);
+  await spaces.deleteSpace(userId,source,"move",spaceId);
+  const detail=svc.getReminderDetail(userId,next,"2026-10-07");
+  expect(detail.reminder.spaceId).toBe(spaceId);expect(detail.renewals).toHaveLength(1);expect(detail.periods).toHaveLength(2);expect(detail.reminder.category?.spaceId).toBe(spaceId);
+  expect(()=>spaces.getSpace(userId,source)).toThrow();
+ });
+ it("permanently deletes only the chosen Space",async()=>{
+  const spaces=await import("@/server/spaces");const source=spaces.createSpace(userId,{name:"Disposable"});
+  const id=svc.createReminder(userId,input({spaceId:source}),"2026-10-07");
+  await spaces.deleteSpace(userId,source,"delete");
+  expect(()=>svc.getReminderDetail(userId,id,"2026-10-07")).toThrow();
+  expect(spaces.getSpace(userId,spaceId).name).toBe("Work");
+ });
 });

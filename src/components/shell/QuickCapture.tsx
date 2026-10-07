@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import { CalendarDays, Repeat, Sparkles, SlidersHorizontal, User2, Bell } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import {
   createContext,
   useCallback,
@@ -25,6 +25,7 @@ import {
   type ReminderDraft,
 } from "@/lib/draft";
 import { parseReminder, QUICK_CAPTURE_EXAMPLES } from "@/lib/parser";
+import { SpacePicker } from "../spaces/SpaceForms";
 import { ReminderFields } from "../reminders/ReminderFields";
 import { Modal } from "../ui/Modal";
 import { Button, Input, Textarea } from "../ui/primitives";
@@ -91,6 +92,10 @@ export function QuickCaptureProvider({ children }: { children: React.ReactNode }
 function QuickCaptureBody({ initialText, onDone }: { initialText: string; onDone: () => void }) {
   const { today, dayFirst, categories } = useApp();
   const router = useRouter();
+  const params = useSearchParams();
+  const path = usePathname();
+  const contextSpace = path.startsWith("/spaces/") && !path.startsWith("/spaces/new") ? path.split("/")[2] : params.get("space") ?? "";
+  const [spaceId, setSpaceId] = useState(contextSpace);
   const toast = useToast();
   const [text, setText] = useState(initialText);
   const [edits, setEdits] = useState<ReminderDraft | null>(null);
@@ -104,8 +109,8 @@ function QuickCaptureBody({ initialText, onDone }: { initialText: string; onDone
     [text, today, dayFirst],
   );
   const draft = useMemo(
-    () => edits ?? (parsed ? draftFromParsed(parsed, categories) : null),
-    [edits, parsed, categories],
+    () => edits ?? (parsed ? draftFromParsed(parsed, categories.filter(c=>c.spaceId===spaceId)) : null),
+    [edits, parsed, categories, spaceId],
   );
 
   const set = <K extends keyof ReminderDraft>(key: K, value: ReminderDraft[K]) => {
@@ -127,7 +132,7 @@ function QuickCaptureBody({ initialText, onDone }: { initialText: string; onDone
       return;
     }
     startTransition(async () => {
-      const result = await createReminderAction(draftToInput(draft), "quick_capture");
+      const result = await createReminderAction({...draftToInput(draft),spaceId}, "quick_capture");
       if (result.ok) {
         toast.show(result.message ?? "Saved.");
         onDone();
@@ -175,6 +180,8 @@ function QuickCaptureBody({ initialText, onDone }: { initialText: string; onDone
           maxLength={500}
         />
       </div>
+
+      {!adjusting && <SpacePicker value={spaceId} onChange={id=>{setSpaceId(id);if(draft)set("categoryId", "");}} error={errors.spaceId}/>}
 
       {!draft && (
         <div>
@@ -279,8 +286,8 @@ function QuickCaptureBody({ initialText, onDone }: { initialText: string; onDone
       {draft && adjusting && (
         <div className="animate-fade-up">
           <ReminderFields
-            draft={draft}
-            set={set}
+            draft={{...draft,spaceId}}
+            set={(key,value)=>{if(key==="spaceId")setSpaceId(value as string);set(key,value);}}
             categories={categories}
             today={today}
             errors={errors}
@@ -291,7 +298,7 @@ function QuickCaptureBody({ initialText, onDone }: { initialText: string; onDone
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
         <Link
-          href={text.trim() ? `/reminders/new?q=${encodeURIComponent(text.trim())}` : "/reminders/new"}
+          href={`/reminders/new?space=${encodeURIComponent(spaceId)}&q=${encodeURIComponent(text.trim())}`}
           onClick={onDone}
           className="text-center text-[13px] font-medium text-ink-3 hover:text-ink sm:text-left"
         >
@@ -312,7 +319,7 @@ function QuickCaptureBody({ initialText, onDone }: { initialText: string; onDone
           <Button
             type="submit"
             loading={pending}
-            disabled={!draft}
+            disabled={!draft || !spaceId}
             className={clsx("flex-1 sm:flex-none sm:min-w-[140px]")}
           >
             Remember this

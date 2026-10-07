@@ -99,6 +99,7 @@ export function ReminderRow({ r, showStatus = true }: { r: ReminderView; showSta
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px] text-ink-2">
           <span className="tabular">{formatMedium(r.importantDate)}</span>
+          <span className="text-ink-2"><span aria-hidden style={{color:r.space.color}}>● </span>{r.space.name}</span>
           <CategoryTag category={r.category} />
           {r.associatedWith && <span className="truncate text-ink-3">{r.associatedWith}</span>}
         </div>
@@ -163,7 +164,7 @@ export function HeroReminder({ r, label }: { r: ReminderView; label: string }) {
             {formatDisplay(r.importantDate)}
           </p>
           <p className="mt-2 text-sm text-ink-2">
-            {reminderTypeLabel(r.reminderType)}
+            {r.space.name} · {reminderTypeLabel(r.reminderType)}
             {r.associatedWith ? ` · ${r.associatedWith}` : ""}
             {r.category ? ` · ${r.category.name}` : ""}
           </p>

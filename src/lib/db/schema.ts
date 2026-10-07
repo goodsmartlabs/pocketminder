@@ -70,6 +70,16 @@ export const userSettings = sqliteTable("user_settings", {
     .default(sql`(unixepoch() * 1000)`),
 });
 
+export const spaces = sqliteTable("spaces", {
+  id: id(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), description: text("description"),
+  icon: text("icon").notNull().default("folder"), color: text("color").notNull().default("#48786c"),
+  status: text("status", { enum: ["active", "archived"] }).notNull().default("active"),
+  createdAt: createdAt(), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+}, (t) => [index("spaces_user_status_idx").on(t.userId, t.status)]);
+
 export const categories = sqliteTable(
   "categories",
   {
@@ -77,6 +87,7 @@ export const categories = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    spaceId: text("space_id").notNull().references(() => spaces.id, { onDelete: "restrict" }),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     color: text("color").notNull(),
@@ -85,7 +96,7 @@ export const categories = sqliteTable(
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("categories_user_slug_idx").on(t.userId, t.slug)],
+  (t) => [uniqueIndex("categories_space_slug_idx").on(t.spaceId, t.slug)],
 );
 
 export const reminders = sqliteTable(
@@ -95,6 +106,7 @@ export const reminders = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    spaceId: text("space_id").notNull().references(() => spaces.id, { onDelete: "restrict" }),
     /** Groups every period/cycle of the same thing (renewals, recurrences). */
     seriesId: text("series_id").notNull(),
     previousReminderId: text("previous_reminder_id"),
@@ -132,6 +144,7 @@ export const reminders = sqliteTable(
     index("reminders_user_date_idx").on(t.userId, t.importantDate),
     index("reminders_user_status_idx").on(t.userId, t.status),
     index("reminders_series_idx").on(t.seriesId),
+    index("reminders_space_date_idx").on(t.spaceId, t.importantDate),
   ],
 );
 
@@ -262,3 +275,5 @@ export type NotificationRow = typeof reminderNotifications.$inferSelect;
 export type AttachmentRow = typeof attachments.$inferSelect;
 export type RenewalRow = typeof renewals.$inferSelect;
 export type HistoryRow = typeof reminderHistory.$inferSelect;
+
+export type SpaceRow = typeof spaces.$inferSelect;

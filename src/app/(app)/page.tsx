@@ -1,3 +1,5 @@
+import { listSpaces } from "@/server/spaces";
+import { SpaceForm } from "@/components/spaces/SpaceForms";
 import clsx from "clsx";
 import { AlertTriangle, CalendarClock, CalendarRange, Sparkle } from "lucide-react";
 import Link from "next/link";
@@ -61,6 +63,7 @@ function SummaryCard({
 
 export default async function HomePage() {
   const user = await requireUser();
+  if (!listSpaces(user.id).length && !listSpaces(user.id,true).length) return <div className="max-w-xl space-y-5"><h1 className="font-display text-3xl">Create your first Minder Space</h1><p>Spaces keep different parts of your life organized. Work holds contracts, licences and staff documents. Personal holds passports, subscriptions and appointments. School holds exams, registrations and deadlines.</p><SpaceForm /></div>;
   const today = todayISO(user.timezone);
   const all = listReminders(user.id, today);
 
@@ -82,7 +85,7 @@ export default async function HomePage() {
         <p className="mt-1 text-[17px] text-ink-2">
           {calm
             ? "Nothing needs you today. Here's what PocketMinder is holding for you."
-            : "Here's what you need to remember."}
+            : "What do I need to remember?"}
         </p>
         <div className="mt-6">
           <CaptureBar />
@@ -120,6 +123,7 @@ export default async function HomePage() {
         />
       </section>
 
+      <section><SectionHeader title="Needs Your Attention"/><ReminderList reminders={all.filter(r=>r.lifecycle==="active"&&["needs_attention","urgent","due_today","overdue"].includes(r.status))}/></section>
       {d.next && (
         <section>
           <HeroReminder

@@ -1,4 +1,5 @@
 "use client";
+import { SpacePicker } from "../spaces/SpaceForms";
 
 import clsx from "clsx";
 import { Plus, ShieldAlert, X } from "lucide-react";
@@ -61,6 +62,7 @@ export function OffsetPicker({
 
   return (
     <div className="space-y-3">
+
       <div className="flex flex-wrap gap-2">
         {PRESET_OFFSETS.map((o) => {
           const on = selected.has(o);
@@ -235,6 +237,8 @@ export function ReminderFields({
 
   return (
     <div className="space-y-5">
+      <SpacePicker value={draft.spaceId} onChange={id=>set("spaceId",id)} error={errors.spaceId}/>
+
       <Field label="What needs to be remembered?" htmlFor="title" error={errors.title}>
         <Input
           id="title"
@@ -285,7 +289,8 @@ export function ReminderFields({
             value={draft.categoryId}
             onChange={(e) => set("categoryId", e.target.value)}
           >
-            {categories.map((c) => (
+            <option value="">No category</option>
+            {categories.filter(c=>c.spaceId===draft.spaceId).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>

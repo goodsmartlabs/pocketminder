@@ -10,7 +10,12 @@ import type {
 
 /** Serializable shapes passed from server to client components. */
 
+export interface SpaceView {
+ id: string; name: string; description: string | null; icon: string; color: string; status: "active" | "archived";
+}
+
 export interface CategoryView {
+  spaceId: string;
   id: string;
   name: string;
   slug: string;
@@ -20,6 +25,8 @@ export interface CategoryView {
 }
 
 export interface ReminderView {
+  spaceId: string;
+  space: SpaceView;
   id: string;
   seriesId: string;
   cycle: number;

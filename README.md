@@ -9,6 +9,22 @@ answers one question: **"What do I need to remember?"**
 
 It is not a task manager, and it doesn't do projects, goals, habits or budgets.
 
+## Minder Spaces
+
+Everything has a Space. Create Work, Personal, School or your own container from **Spaces**.
+Each Space has its own dashboard, calendar, categories and settings. Every reminder must
+belong to a Space; quick capture asks you to confirm where it belongs. The global Home,
+Calendar and Reminders register combine active Spaces, with a quick Space switcher.
+
+Archive a Space to pause its monitoring while preserving dates, notes, renewal and
+activity history, and attachments. Restore it from Archived Spaces. Deleting a Space
+requires an explicit choice: move all reminders and their history to another active
+Space, or permanently delete the Space and its reminders.
+
+The migration puts existing accounts' reminders into **Imported Reminders**; it does
+not guess their meaning or discard historical data. New accounts create their first
+Space before adding reminders. Categories belong to a Space, never to the account globally.
+
 ## Features (V1)
 
 - **Accounts**: email and password sign-up and sign-in (scrypt hashes, DB-backed sessions).

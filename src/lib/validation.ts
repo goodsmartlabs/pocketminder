@@ -35,6 +35,7 @@ export const recurrenceSchema = z
   .nullable();
 
 export const reminderInputSchema = z.object({
+  spaceId: z.string().trim().min(1, "Where should I remember this?"),
   title: noSecrets(
     z.string().trim().min(1, "What do you need to remember?").max(140, "Keep the title short."),
   ),

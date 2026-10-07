@@ -8,6 +8,13 @@
       "when": 1791355121461,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791368579059,
+      "tag": "0001_fuzzy_lockheed",
+      "breakpoints": true
     }
   ]
 }

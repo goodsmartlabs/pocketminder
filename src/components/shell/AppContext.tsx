@@ -2,7 +2,7 @@
 
 import { createContext, useContext } from "react";
 import type { ISODate } from "@/lib/dates";
-import type { CategoryView } from "@/lib/types";
+import type { CategoryView, SpaceView } from "@/lib/types";
 
 export interface AppContextValue {
   userName: string;
@@ -10,6 +10,7 @@ export interface AppContextValue {
   timezone: string;
   dayFirst: boolean;
   categories: CategoryView[];
+  spaces: SpaceView[];
   defaultOffsets: number[];
   browserNotifications: boolean;
 }

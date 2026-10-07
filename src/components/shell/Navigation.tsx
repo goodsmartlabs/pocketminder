@@ -3,6 +3,7 @@
 import clsx from "clsx";
 import {
   Archive,
+  Folder,
   CalendarDays,
   Home,
   ListChecks,
@@ -12,13 +13,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useApp } from "./AppContext";
 import { NotificationBell } from "./Notifications";
 import { useQuickCapture } from "./QuickCapture";
 
 const NAV = [
   { href: "/", label: "Home", icon: Home },
+  { href: "/spaces", label: "Spaces", icon: Folder },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/reminders", label: "Reminders", icon: ListChecks },
   { href: "/archive", label: "Archive", icon: Archive },
@@ -32,7 +34,11 @@ function isActive(pathname: string, href: string) {
 
 export function Logo({ className }: { className?: string }) {
   return (
-    <Link href="/" className={clsx("flex items-center gap-2.5", className)} aria-label="PocketMinder home">
+    <Link
+      href="/"
+      className={clsx("flex items-center gap-2.5", className)}
+      aria-label="PocketMinder home"
+    >
       <LogoMark className="size-8" />
       <span className="font-display text-[19px] font-semibold tracking-tight text-ink">
         PocketMinder
@@ -57,7 +63,13 @@ export function LogoMark({ className }: { className?: string }) {
   );
 }
 
-export function RememberButton({ className, compact }: { className?: string; compact?: boolean }) {
+export function RememberButton({
+  className,
+  compact,
+}: {
+  className?: string;
+  compact?: boolean;
+}) {
   const { open } = useQuickCapture();
   return (
     <button
@@ -93,10 +105,17 @@ export function Sidebar() {
               aria-current={active ? "page" : undefined}
               className={clsx(
                 "flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] font-medium transition-colors",
-                active ? "bg-surface text-ink shadow-card" : "text-ink-2 hover:bg-surface-2 hover:text-ink",
+                active
+                  ? "bg-surface text-ink shadow-card"
+                  : "text-ink-2 hover:bg-surface-2 hover:text-ink",
               )}
             >
-              <Icon className={clsx("size-[18px]", active ? "text-accent" : "text-ink-3")} />
+              <Icon
+                className={clsx(
+                  "size-[18px]",
+                  active ? "text-accent" : "text-ink-3",
+                )}
+              />
               {label}
             </Link>
           );
@@ -108,7 +127,9 @@ export function Sidebar() {
           <br />
           Get it out of your head.
         </p>
-        <p className="mt-4 truncate text-[13px] text-ink-3">Signed in as {userName}</p>
+        <p className="mt-4 truncate text-[13px] text-ink-3">
+          Signed in as {userName}
+        </p>
       </div>
     </aside>
   );
@@ -140,7 +161,9 @@ function SearchForm({
       className={clsx("relative", className)}
       onSubmit={(e) => {
         e.preventDefault();
-        router.push(q.trim() ? `/search?q=${encodeURIComponent(q.trim())}` : "/search");
+        router.push(
+          q.trim() ? `/search?q=${encodeURIComponent(q.trim())}` : "/search",
+        );
       }}
     >
       <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
@@ -162,11 +185,49 @@ export function TopBar() {
     <header className="sticky top-0 z-30 hidden border-b border-line/60 bg-bg/85 backdrop-blur-md lg:block">
       <div className="mx-auto flex h-16 max-w-5xl items-center gap-4 px-8">
         <SearchBox className="max-w-md flex-1" />
+        <SpaceSwitcher />
         <div className="ml-auto flex items-center gap-1">
           <NotificationBell />
         </div>
       </div>
     </header>
+  );
+}
+
+export function SpaceSwitcher() {
+  const { spaces } = useApp();
+  const router = useRouter();
+  const params = useSearchParams();
+  const path = usePathname();
+  const selected =
+    path.startsWith("/spaces/") && !path.startsWith("/spaces/new")
+      ? path.split("/")[2]
+      : (params.get("space") ?? "");
+  return (
+    <select
+      aria-label="Minder Space switcher"
+      className="max-w-48 rounded-xl border border-line bg-surface px-2 py-2 text-sm"
+      value={selected}
+      onChange={(e) => {
+        const id = e.target.value;
+        const target =
+          path === "/calendar" || path === "/reminders" ? path : "/";
+        router.push(
+          id
+            ? target === "/"
+              ? `/spaces/${id}`
+              : `${target}?space=${id}`
+            : target,
+        );
+      }}
+    >
+      <option value="">All Spaces</option>
+      {spaces.map((s) => (
+        <option key={s.id} value={s.id}>
+          {s.name}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -193,11 +254,16 @@ export function MobileHeader() {
           </Link>
         </div>
       </div>
+      <div className="px-4 pb-2">
+        <Suspense>
+          <SpaceSwitcher />
+        </Suspense>
+      </div>
     </header>
   );
 }
 
-const MOBILE_NAV = [NAV[0], NAV[1], null, NAV[2], NAV[3]];
+const MOBILE_NAV = [NAV[0], NAV[1], null, NAV[2], NAV[3], NAV[4]];
 
 export function MobileNav() {
   const pathname = usePathname();
@@ -206,7 +272,7 @@ export function MobileNav() {
       className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur-md lg:hidden"
       aria-label="Main"
     >
-      <div className="mx-auto grid h-16 max-w-md grid-cols-5 items-center px-2">
+      <div className="mx-auto grid h-16 max-w-md grid-cols-6 items-center px-2">
         {MOBILE_NAV.map((item) => {
           if (!item) {
             return (

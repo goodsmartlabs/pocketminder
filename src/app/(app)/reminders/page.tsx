@@ -23,9 +23,11 @@ export default async function RemindersPage({
 }) {
   const user = await requireUser();
   const today = todayISO(user.timezone);
-  const query = parseRegisterQuery(await searchParams);
-  const all = listReminders(user.id, today);
-  const categories = listCategories(user.id);
+  const params = await searchParams;
+  const space = typeof params.space === "string" ? params.space : undefined;
+  const query = parseRegisterQuery(params);
+  const all = listReminders(user.id, today, {spaceId:space});
+  const categories = listCategories(user.id,space);
   const results = applyRegister(all, query);
 
   const counts: Record<string, number> = {};
@@ -44,7 +46,7 @@ export default async function RemindersPage({
         title="Reminders"
         subtitle="Every date PocketMinder is keeping for you."
         action={
-          <ButtonLink href="/reminders/new" variant="secondary">
+          <ButtonLink href={space?`/reminders/new?space=${space}`:"/reminders/new"} variant="secondary">
             <Plus className="size-4" /> Add reminder
           </ButtonLink>
         }

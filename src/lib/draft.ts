@@ -13,6 +13,7 @@ import type { CategoryView, ReminderView } from "./types";
 
 /** Editable form state shared by quick capture, the manual form and edit. */
 export interface ReminderDraft {
+  spaceId: string;
   title: string;
   importantDate: ISODate | "";
   categoryId: string;
@@ -28,6 +29,7 @@ export interface ReminderDraft {
 
 export function emptyDraft(categories: CategoryView[], defaultOffsets?: number[]): ReminderDraft {
   return {
+    spaceId: "",
     title: "",
     importantDate: "",
     categoryId: categories.find((c) => c.slug === "personal")?.id ?? categories[0]?.id ?? "",
@@ -45,6 +47,7 @@ export function emptyDraft(categories: CategoryView[], defaultOffsets?: number[]
 export function draftFromParsed(p: ParsedReminder, categories: CategoryView[]): ReminderDraft {
   const preset = recurrencePresetFor(p.recurrence);
   return {
+    spaceId: "",
     title: p.title,
     importantDate: p.date ?? "",
     categoryId:
@@ -64,6 +67,7 @@ export function draftFromParsed(p: ParsedReminder, categories: CategoryView[]): 
 
 export function draftFromReminder(r: ReminderView): ReminderDraft {
   return {
+    spaceId: r.spaceId,
     title: r.title,
     importantDate: r.importantDate,
     categoryId: r.category?.id ?? "",
@@ -88,6 +92,7 @@ export function draftRecurrence(d: ReminderDraft): Recurrence | null {
 /** Shape sent to the create/update server actions (validated there). */
 export function draftToInput(d: ReminderDraft) {
   return {
+    spaceId: d.spaceId,
     title: d.title,
     importantDate: d.importantDate,
     categoryId: d.categoryId || null,
@@ -110,6 +115,7 @@ export function applyDraftChange<K extends keyof ReminderDraft>(
   value: ReminderDraft[K],
 ): ReminderDraft {
   const next = { ...d, [key]: value };
+  if (key === "spaceId") next.categoryId = "";
   if (key === "reminderType") {
     const prevDefaults = DEFAULT_OFFSETS_BY_TYPE[d.reminderType];
     const untouched =

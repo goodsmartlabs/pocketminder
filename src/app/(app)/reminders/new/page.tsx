@@ -6,9 +6,9 @@ export const metadata = { title: "Add reminder" };
 export default async function NewReminderPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; space?: string }>;
 }) {
-  const { q } = await searchParams;
+  const { q, space } = await searchParams;
   return (
     <div className="animate-fade-up mx-auto max-w-2xl">
       <PageHeader
@@ -16,7 +16,7 @@ export default async function NewReminderPage({
         subtitle="Tell PocketMinder once. It will keep watch from here."
         back={{ href: "/", label: "Home" }}
       />
-      <ReminderForm mode="create" prefillText={q?.slice(0, 500) || undefined} />
+      <ReminderForm spaceId={space} mode="create" prefillText={q?.slice(0, 500) || undefined} />
     </div>
   );
 }

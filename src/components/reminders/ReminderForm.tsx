@@ -22,11 +22,13 @@ export function ReminderForm({
   reminderId,
   initial,
   prefillText,
+  spaceId,
 }: {
   mode: "create" | "edit";
   reminderId?: string;
   initial?: ReminderDraft;
   prefillText?: string;
+  spaceId?: string;
 }) {
   const { today, dayFirst, categories, defaultOffsets } = useApp();
   const router = useRouter();
@@ -34,8 +36,8 @@ export function ReminderForm({
   const [draft, setDraft] = useState<ReminderDraft>(() => {
     if (initial) return initial;
     if (prefillText)
-      return draftFromParsed(parseReminder(prefillText, { today, dayFirst }), categories);
-    return emptyDraft(categories, defaultOffsets);
+      return {...draftFromParsed(parseReminder(prefillText, { today, dayFirst }), categories), spaceId:spaceId??"",categoryId:""};
+    return {...emptyDraft(categories, defaultOffsets), spaceId: spaceId ?? "", categoryId: ""};
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pending, startTransition] = useTransition();

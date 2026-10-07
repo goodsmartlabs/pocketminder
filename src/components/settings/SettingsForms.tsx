@@ -1,4 +1,5 @@
 "use client";
+import { useApp } from "../shell/AppContext";
 
 import clsx from "clsx";
 import { Bell, Monitor, Moon, Sun, Trash2 } from "lucide-react";
@@ -399,7 +400,9 @@ export function AppearanceSection() {
 
 /* ------------------------------------------------------------------ */
 
-export function CategoriesSection({ categories }: { categories: CategoryView[] }) {
+export function CategoriesSection({ categories, initialSpaceId="" }: { categories: CategoryView[]; initialSpaceId?:string }) {
+  const {spaces}=useApp();
+  const [spaceId,setSpaceId]=useState(initialSpaceId);
   const { save, pending } = useSave();
   const [name, setName] = useState("");
   return (
@@ -407,8 +410,10 @@ export function CategoriesSection({ categories }: { categories: CategoryView[] }
       title="Categories"
       description="The defaults cover most things. Add your own for anything else."
     >
+ <Select aria-label="Category Minder Space" value={spaceId} onChange={e=>setSpaceId(e.target.value)}><option value="">Choose a Space</option>{spaces.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</Select>
+
       <ul className="flex flex-wrap gap-2">
-        {categories.map((c) => (
+        {categories.filter(c=>c.spaceId===spaceId).map((c) => (
           <li
             key={c.id}
             className="inline-flex h-9 items-center gap-2 rounded-full border border-line pl-3 pr-1.5 text-[14px] text-ink"
@@ -434,7 +439,7 @@ export function CategoriesSection({ categories }: { categories: CategoryView[] }
         className="mt-4 flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (name.trim()) save(() => addCategoryAction(name), () => setName(""));
+          if (name.trim()) save(() => addCategoryAction(name,spaceId), () => setName(""));
         }}
       >
         <Input

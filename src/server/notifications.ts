@@ -35,11 +35,13 @@ export async function processDueNotifications(
   const db = getDb();
   const today = todayISO(timezone, opts.now);
   const settings = getSettings(userId);
+  const activeSpaces = new Set(db.select({id:schema.spaces.id}).from(schema.spaces).where(and(eq(schema.spaces.userId,userId),eq(schema.spaces.status,"active"))).all().map(s=>s.id));
 
   const due = db
     .select({
       n: schema.reminderNotifications,
       r: {
+        spaceId: schema.reminders.spaceId,
         id: schema.reminders.id,
         title: schema.reminders.title,
         importantDate: schema.reminders.importantDate,
@@ -62,6 +64,7 @@ export async function processDueNotifications(
   type Reminder = (typeof due)[number]["r"];
   const byReminder = new Map<string, { r: Reminder; items: (typeof due)[number]["n"][] }>();
   for (const row of due) {
+    if (!activeSpaces.has(row.r.spaceId)) continue;
     const entry = byReminder.get(row.r.id) ?? { r: row.r, items: [] };
     entry.items.push(row.n);
     byReminder.set(row.r.id, entry);
@@ -101,6 +104,7 @@ export async function processDueNotifications(
     // Overdue items keep surfacing (weekly) until the user resolves them.
     const overdue = tx
       .select({
+        spaceId: schema.reminders.spaceId,
         id: schema.reminders.id,
         title: schema.reminders.title,
         importantDate: schema.reminders.importantDate,
@@ -142,6 +146,7 @@ export async function processDueNotifications(
       }
       const threshold = addDays(today, -OVERDUE_RENOTIFY_DAYS);
       for (const r of overdue) {
+        if (!activeSpaces.has(r.spaceId)) continue;
         if (r.snoozedUntil && r.snoozedUntil > today) continue;
         if (toSend.some((s) => s.r.id === r.id)) continue;
         const last = lastOverdue.get(r.id);
@@ -266,8 +271,11 @@ export function pendingBrowserDeliveries(userId: string) {
       schema.reminderNotifications,
       eq(schema.reminderNotifications.id, schema.notificationDeliveries.notificationId),
     )
+    .innerJoin(schema.reminders,eq(schema.reminders.id,schema.reminderNotifications.reminderId))
+    .innerJoin(schema.spaces,eq(schema.spaces.id,schema.reminders.spaceId))
     .where(
       and(
+        eq(schema.spaces.status,"active"),
         eq(schema.notificationDeliveries.userId, userId),
         eq(schema.notificationDeliveries.channel, "browser"),
         eq(schema.notificationDeliveries.status, "pending"),

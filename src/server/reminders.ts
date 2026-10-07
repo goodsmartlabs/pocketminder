@@ -1,6 +1,8 @@
+import { getSpace } from "./spaces";
 import "server-only";
 import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import { getDb, schema, type DB } from "@/lib/db";
+import type { SpaceView } from "@/lib/types";
 import type { Category, ReminderRow } from "@/lib/db/schema";
 import {
   addDays,
@@ -12,7 +14,6 @@ import {
   type ISODate,
 } from "@/lib/dates";
 import {
-  DEFAULT_CATEGORIES,
   normalizeOffsets,
   recurrenceLabel,
   type Lifecycle,
@@ -46,21 +47,7 @@ export class NotFoundError extends Error {
 
 export function ensureUserSetup(userId: string, conn: Conn = getDb()): void {
   conn.insert(schema.userSettings).values({ userId }).onConflictDoNothing().run();
-  DEFAULT_CATEGORIES.forEach((c, i) => {
-    conn
-      .insert(schema.categories)
-      .values({
-        userId,
-        name: c.name,
-        slug: c.slug,
-        color: c.color,
-        icon: c.icon,
-        isDefault: true,
-        sortOrder: i,
-      })
-      .onConflictDoNothing()
-      .run();
-  });
+
 }
 
 export function getSettings(userId: string): SettingsView {
@@ -95,6 +82,7 @@ export function getSettings(userId: string): SettingsView {
 
 function toCategoryView(c: Category): CategoryView {
   return {
+    spaceId: c.spaceId,
     id: c.id,
     name: c.name,
     slug: c.slug,
@@ -104,22 +92,22 @@ function toCategoryView(c: Category): CategoryView {
   };
 }
 
-export function listCategories(userId: string): CategoryView[] {
+export function listCategories(userId: string, spaceId?: string): CategoryView[] {
   return getDb()
     .select()
     .from(schema.categories)
-    .where(eq(schema.categories.userId, userId))
+    .where(and(eq(schema.categories.userId, userId), spaceId ? eq(schema.categories.spaceId,spaceId) : undefined))
     .orderBy(asc(schema.categories.sortOrder), asc(schema.categories.name))
     .all()
     .map(toCategoryView);
 }
 
-function assertCategory(conn: Conn, userId: string, categoryId: string | null): string | null {
+function assertCategory(conn: Conn, userId: string, categoryId: string | null, spaceId: string): string | null {
   if (!categoryId) return null;
   const c = conn
     .select({ id: schema.categories.id })
     .from(schema.categories)
-    .where(and(eq(schema.categories.id, categoryId), eq(schema.categories.userId, userId)))
+    .where(and(eq(schema.categories.id, categoryId), eq(schema.categories.userId, userId), eq(schema.categories.spaceId,spaceId)))
     .get();
   if (!c) throw new NotFoundError("Category not found");
   return c.id;
@@ -149,8 +137,11 @@ function toView(
   category: CategoryView | null,
   today: ISODate,
   nextNotificationDate: ISODate | null,
+  space?: SpaceView,
 ): ReminderView {
   return {
+    spaceId: r.spaceId,
+    space: space ?? getSpace(r.userId, r.spaceId),
     id: r.id,
     seriesId: r.seriesId,
     cycle: r.cycle,
@@ -210,7 +201,7 @@ function nextNotificationMap(conn: Conn, userId: string, today: ISODate): Map<st
 export function listReminders(
   userId: string,
   today: ISODate,
-  opts: { lifecycles?: Lifecycle[] } = {},
+  opts: { lifecycles?: Lifecycle[]; spaceId?: string; includeArchivedSpaces?: boolean } = {},
 ): ReminderView[] {
   const db = getDb();
   const cats = new Map(listCategories(userId).map((c) => [c.id, c]));
@@ -224,8 +215,9 @@ export function listReminders(
     .orderBy(asc(schema.reminders.importantDate))
     .all();
   const next = nextNotificationMap(db, userId, today);
-  return rows.map((r) =>
-    toView(r, r.categoryId ? (cats.get(r.categoryId) ?? null) : null, today, next.get(r.id) ?? null),
+  const spaces = new Map(db.select().from(schema.spaces).where(eq(schema.spaces.userId,userId)).all().map(s=>[s.id,s]));
+  return rows.filter(r => (!opts.spaceId || r.spaceId === opts.spaceId) && (opts.includeArchivedSpaces || spaces.get(r.spaceId)?.status === "active")).map((r) =>
+    toView(r, r.categoryId ? (cats.get(r.categoryId) ?? null) : null, today, next.get(r.id) ?? null, spaces.get(r.spaceId)),
   );
 }
 
@@ -432,6 +424,7 @@ function scheduleNotifications(conn: Conn, r: ReminderRow, today: ISODate): void
 
 function rowValuesFromInput(input: ReminderInput) {
   return {
+    spaceId: input.spaceId,
     title: input.title,
     description: input.description,
     importantDate: input.importantDate,
@@ -452,7 +445,8 @@ export function createReminder(
 ): string {
   const db = getDb();
   return db.transaction((tx) => {
-    const categoryId = assertCategory(tx, userId, input.categoryId);
+    if (getSpace(userId, input.spaceId).status !== "active") throw new Error("Choose an active Minder Space.");
+    const categoryId = assertCategory(tx, userId, input.categoryId, input.spaceId);
     const id = crypto.randomUUID();
     const row = tx
       .insert(schema.reminders)
@@ -485,7 +479,8 @@ export function updateReminder(
   const db = getDb();
   db.transaction((tx) => {
     const before = getRow(tx, userId, id);
-    const categoryId = assertCategory(tx, userId, input.categoryId);
+    if (getSpace(userId, input.spaceId).status !== "active") throw new Error("Choose an active Minder Space.");
+    const categoryId = assertCategory(tx, userId, input.categoryId, input.spaceId);
     const values = rowValuesFromInput(input);
     const after = tx
       .update(schema.reminders)
@@ -640,6 +635,7 @@ function openNextPeriod(
     .values({
       id: newId,
       userId: old.userId,
+      spaceId: old.spaceId,
       seriesId: old.seriesId,
       previousReminderId: old.id,
       cycle: old.cycle + 1,
