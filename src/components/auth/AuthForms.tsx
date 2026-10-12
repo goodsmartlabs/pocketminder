@@ -26,9 +26,18 @@ export function LoginForm() {
       <Heading title="Welcome back." subtitle="Let's see what you need to remember." />
       <form action={action} className="space-y-5" noValidate>
         {state.error && (
-          <p className="rounded-xl bg-critical-bg px-4 py-3 text-sm text-critical" role="alert">
-            {state.error}
-          </p>
+          <div className="rounded-xl bg-critical-bg px-4 py-3 text-sm text-critical" role="alert">
+            <p>{state.error}</p>
+            <p className="mt-1.5 text-ink-2">
+              No account on this site yet?{" "}
+              <Link
+                href={`/signup${state.values?.email ? `?email=${encodeURIComponent(state.values.email)}` : ""}`}
+                className="font-semibold text-accent underline"
+              >
+                Create one with this email
+              </Link>
+            </p>
+          </div>
         )}
         <Field label="Email" htmlFor="email" error={state.fieldErrors?.email}>
           <Input
@@ -74,7 +83,7 @@ function browserTimeZone(): string {
   }
 }
 
-export function SignupForm() {
+export function SignupForm({ initialEmail }: { initialEmail?: string }) {
   const [state, action, pending] = useActionState<AuthFormState, FormData>(signupAction, {});
   const timezone = useClientValue(browserTimeZone, "UTC");
   return (
@@ -107,7 +116,7 @@ export function SignupForm() {
             name="email"
             type="email"
             autoComplete="email"
-            defaultValue={state.values?.email}
+            defaultValue={state.values?.email ?? initialEmail}
             invalid={!!state.fieldErrors?.email}
             required
           />

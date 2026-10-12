@@ -25,6 +25,7 @@ COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
 COPY --from=build /app/drizzle ./drizzle
+COPY --from=build /app/scripts ./scripts
 RUN mkdir -p /data && chown -R node:node /data /app
 # Initialize mounted volume ownership, then drop privileges before starting the app.
 # SQLite database and attachments live here: mount a persistent volume.
