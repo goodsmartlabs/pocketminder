@@ -8,6 +8,15 @@ const nextConfig: NextConfig = {
   // Self-contained server bundle (.next/standalone) for Docker or any Node host.
   output: "standalone",
   serverExternalPackages: ["better-sqlite3"],
+  // Common guesses for the auth pages lead to the real ones instead of a 404.
+  async redirects() {
+    const toLogin = ["/signin", "/sign-in", "/log-in", "/auth/login", "/auth/signin", "/account/login"];
+    const toSignup = ["/sign-up", "/register", "/auth/signup", "/auth/register", "/account/signup"];
+    return [
+      ...toLogin.map((source) => ({ source, destination: "/login", permanent: false })),
+      ...toSignup.map((source) => ({ source, destination: "/signup", permanent: false })),
+    ];
+  },
   turbopack: {
     rules: {
       "*.css": {

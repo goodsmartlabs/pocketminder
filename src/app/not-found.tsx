@@ -10,9 +10,12 @@ export default function NotFound() {
       <p className="mt-3 max-w-sm text-ink-2">
         It may have been deleted, or the link is wrong. Everything else is right where you left it.
       </p>
-      <ButtonLink href="/" className="mt-8">
-        Back to PocketMinder
-      </ButtonLink>
+      <div className="mt-8 flex flex-wrap justify-center gap-2">
+        <ButtonLink href="/">Back to PocketMinder</ButtonLink>
+        <ButtonLink href="/login" variant="secondary">
+          Sign in
+        </ButtonLink>
+      </div>
     </div>
   );
 }
