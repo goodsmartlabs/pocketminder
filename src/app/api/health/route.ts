@@ -8,7 +8,12 @@ export const dynamic = "force-dynamic";
 export function GET() {
   try {
     getDb().run(sql`select 1`);
-    return NextResponse.json({ status: "ok" });
+    return NextResponse.json({
+      status: "ok",
+      // Which commit is live (set automatically by Railway; useful after a deploy).
+      version: (process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.SOURCE_COMMIT ?? "dev").slice(0, 7),
+      auth: "form-post",
+    });
   } catch (error) {
     console.error("PocketMinder database health check failed", error);
     return NextResponse.json({ status: "error" }, { status: 503 });

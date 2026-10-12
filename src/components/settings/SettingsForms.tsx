@@ -5,7 +5,6 @@ import clsx from "clsx";
 import { Bell, Monitor, Moon, Sun, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { logoutAction } from "@/app/actions/auth";
 import {
   addCategoryAction,
   changePasswordAction,
@@ -506,7 +505,7 @@ export function SecuritySection() {
           </Button>
         </div>
       </form>
-      <form action={logoutAction} className="mt-6 border-t border-line pt-5">
+      <form method="post" action="/api/auth/logout" className="mt-6 border-t border-line pt-5">
         <Button type="submit" variant="ghost" className="-ml-3 text-critical hover:text-critical">
           Sign out
         </Button>

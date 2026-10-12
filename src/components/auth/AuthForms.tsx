@@ -1,11 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
-import { loginAction, signupAction, type AuthFormState } from "@/app/actions/auth";
+import { useState } from "react";
 import { useClientValue } from "@/lib/useClientValue";
 import { LogoMark } from "../shell/Navigation";
 import { Button, Field, Input } from "../ui/primitives";
+
+/*
+ * Sign-in and sign-up are plain HTML forms posting to /api/auth/*. The server
+ * sets the session cookie and answers with a 303 redirect, so they work with
+ * or without JavaScript and behind any hosting proxy.
+ */
 
 function Heading({ title, subtitle }: { title: string; subtitle: string }) {
   return (
@@ -19,45 +24,56 @@ function Heading({ title, subtitle }: { title: string; subtitle: string }) {
   );
 }
 
-export function LoginForm() {
-  const [state, action, pending] = useActionState<AuthFormState, FormData>(loginAction, {});
+function ErrorBox({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl bg-critical-bg px-4 py-3 text-sm text-critical" role="alert">
+      {children}
+    </div>
+  );
+}
+
+export function LoginForm({ error, email }: { error: string | null; email?: string }) {
+  const [pending, setPending] = useState(false);
   return (
     <>
       <Heading title="Welcome back." subtitle="Let's see what you need to remember." />
-      <form action={action} className="space-y-5" noValidate>
-        {state.error && (
-          <div className="rounded-xl bg-critical-bg px-4 py-3 text-sm text-critical" role="alert">
-            <p>{state.error}</p>
+      <form
+        method="post"
+        action="/api/auth/login"
+        className="space-y-5"
+        onSubmit={() => setPending(true)}
+      >
+        {error && (
+          <ErrorBox>
+            <p>{error}</p>
             <p className="mt-1.5 text-ink-2">
               No account on this site yet?{" "}
               <Link
-                href={`/signup${state.values?.email ? `?email=${encodeURIComponent(state.values.email)}` : ""}`}
+                href={`/signup${email ? `?email=${encodeURIComponent(email)}` : ""}`}
                 className="font-semibold text-accent underline"
               >
                 Create one with this email
               </Link>
             </p>
-          </div>
+          </ErrorBox>
         )}
-        <Field label="Email" htmlFor="email" error={state.fieldErrors?.email}>
+        <Field label="Email" htmlFor="email">
           <Input
             id="email"
             name="email"
             type="email"
             autoComplete="email"
-            defaultValue={state.values?.email}
-            invalid={!!state.fieldErrors?.email}
+            defaultValue={email}
             required
             autoFocus
           />
         </Field>
-        <Field label="Password" htmlFor="password" error={state.fieldErrors?.password}>
+        <Field label="Password" htmlFor="password">
           <Input
             id="password"
             name="password"
             type="password"
             autoComplete="current-password"
-            invalid={!!state.fieldErrors?.password}
             required
           />
         </Field>
@@ -83,8 +99,16 @@ function browserTimeZone(): string {
   }
 }
 
-export function SignupForm({ initialEmail }: { initialEmail?: string }) {
-  const [state, action, pending] = useActionState<AuthFormState, FormData>(signupAction, {});
+export function SignupForm({
+  error,
+  email,
+  name,
+}: {
+  error: string | null;
+  email?: string;
+  name?: string;
+}) {
+  const [pending, setPending] = useState(false);
   const timezone = useClientValue(browserTimeZone, "UTC");
   return (
     <>
@@ -92,47 +116,37 @@ export function SignupForm({ initialEmail }: { initialEmail?: string }) {
         title="Get it out of your head."
         subtitle="Create your PocketMinder. It takes ten seconds."
       />
-      <form action={action} className="space-y-5" noValidate>
-        {state.error && (
-          <p className="rounded-xl bg-critical-bg px-4 py-3 text-sm text-critical" role="alert">
-            {state.error}
-          </p>
+      <form
+        method="post"
+        action="/api/auth/signup"
+        className="space-y-5"
+        onSubmit={() => setPending(true)}
+      >
+        {error && (
+          <ErrorBox>
+            <p>{error}</p>
+          </ErrorBox>
         )}
         <input type="hidden" name="timezone" value={timezone} />
-        <Field label="Your name" htmlFor="name" error={state.fieldErrors?.name}>
-          <Input
-            id="name"
-            name="name"
-            autoComplete="name"
-            defaultValue={state.values?.name}
-            invalid={!!state.fieldErrors?.name}
-            required
-            autoFocus
-          />
+        <Field label="Your name" htmlFor="name">
+          <Input id="name" name="name" autoComplete="name" defaultValue={name} required autoFocus />
         </Field>
-        <Field label="Email" htmlFor="email" error={state.fieldErrors?.email}>
+        <Field label="Email" htmlFor="email">
           <Input
             id="email"
             name="email"
             type="email"
             autoComplete="email"
-            defaultValue={state.values?.email ?? initialEmail}
-            invalid={!!state.fieldErrors?.email}
+            defaultValue={email}
             required
           />
         </Field>
-        <Field
-          label="Password"
-          htmlFor="password"
-          error={state.fieldErrors?.password}
-          hint="At least 8 characters."
-        >
+        <Field label="Password" htmlFor="password" hint="At least 8 characters.">
           <Input
             id="password"
             name="password"
             type="password"
             autoComplete="new-password"
-            invalid={!!state.fieldErrors?.password}
             required
             minLength={8}
           />
