@@ -9,6 +9,10 @@ const nextConfig: NextConfig = {
   output: "standalone",
   serverExternalPackages: ["better-sqlite3"],
   // Common guesses for the auth pages lead to the real ones instead of a 404.
+  // Browsers ask for /favicon.ico on pages without an icon tag (e.g. JSON).
+  async rewrites() {
+    return [{ source: "/favicon.ico", destination: "/icon.svg" }];
+  },
   async redirects() {
     const toLogin = ["/signin", "/sign-in", "/log-in", "/auth/login", "/auth/signin", "/account/login"];
     const toSignup = ["/sign-up", "/register", "/auth/signup", "/auth/register", "/account/signup"];
