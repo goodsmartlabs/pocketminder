@@ -35,7 +35,8 @@ After changing `src/lib/db/schema.ts`, run `npm run db:generate` and apply the n
    (a `CNAME` to `cname.vercel-dns.com` for a subdomain).
 4. Check `https://pocketminder.innergency.com/api/health` → `{"status":"ok", ...}`.
 
-`vercel.json` schedules the notification job daily (the Hobby plan allows one run per day).
+`vercel.json` runs functions in `fra1` (next to the Supabase database in eu-central-1) and
+schedules the notification job daily (the Hobby plan allows one run per day).
 In-app and browser notifications also update whenever a user opens the app.
 
 ## Docker / any Node host
