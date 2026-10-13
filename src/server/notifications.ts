@@ -1,4 +1,5 @@
 import "server-only";
+import { firstRow, oneRow } from "@/lib/db/first";
 import { and, count, desc, eq, inArray, isNull, lte } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { addDays, todayISO, type ISODate } from "@/lib/dates";
@@ -29,15 +30,28 @@ export async function processDueNotifications(
   opts: { force?: boolean; now?: Date } = {},
 ): Promise<number> {
   const nowMs = (opts.now ?? new Date()).getTime();
-  if (!opts.force && nowMs - (lastRun.get(userId) ?? 0) < MIN_INTERVAL_MS) return 0;
+  if (!opts.force && nowMs - (lastRun.get(userId) ?? 0) < MIN_INTERVAL_MS)
+    return 0;
   lastRun.set(userId, nowMs);
 
   const db = getDb();
   const today = todayISO(timezone, opts.now);
-  const settings = getSettings(userId);
-  const activeSpaces = new Set(db.select({id:schema.spaces.id}).from(schema.spaces).where(and(eq(schema.spaces.userId,userId),eq(schema.spaces.status,"active"))).all().map(s=>s.id));
+  const settings = await getSettings(userId);
+  const activeSpaces = new Set(
+    (
+      await db
+        .select({ id: schema.spaces.id })
+        .from(schema.spaces)
+        .where(
+          and(
+            eq(schema.spaces.userId, userId),
+            eq(schema.spaces.status, "active"),
+          ),
+        )
+    ).map((s) => s.id),
+  );
 
-  const due = db
+  const due = await db
     .select({
       n: schema.reminderNotifications,
       r: {
@@ -51,18 +65,22 @@ export async function processDueNotifications(
       },
     })
     .from(schema.reminderNotifications)
-    .innerJoin(schema.reminders, eq(schema.reminders.id, schema.reminderNotifications.reminderId))
+    .innerJoin(
+      schema.reminders,
+      eq(schema.reminders.id, schema.reminderNotifications.reminderId),
+    )
     .where(
       and(
         eq(schema.reminderNotifications.userId, userId),
         eq(schema.reminderNotifications.status, "pending"),
         lte(schema.reminderNotifications.scheduledFor, today),
       ),
-    )
-    .all();
-
+    );
   type Reminder = (typeof due)[number]["r"];
-  const byReminder = new Map<string, { r: Reminder; items: (typeof due)[number]["n"][] }>();
+  const byReminder = new Map<
+    string,
+    { r: Reminder; items: (typeof due)[number]["n"][] }
+  >();
   for (const row of due) {
     if (!activeSpaces.has(row.r.spaceId)) continue;
     const entry = byReminder.get(row.r.id) ?? { r: row.r, items: [] };
@@ -70,39 +88,55 @@ export async function processDueNotifications(
     byReminder.set(row.r.id, entry);
   }
 
-  const toSend: { notificationId: string; r: Reminder; kind: NotificationView["kind"] }[] = [];
+  const toSend: {
+    notificationId: string;
+    r: Reminder;
+    kind: NotificationView["kind"];
+  }[] = [];
 
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     for (const { r, items } of byReminder.values()) {
       if (r.status !== "active") {
-        tx.update(schema.reminderNotifications)
+        await tx
+          .update(schema.reminderNotifications)
           .set({ status: "cancelled" })
-          .where(inArray(schema.reminderNotifications.id, items.map((i) => i.id)))
-          .run();
+          .where(
+            inArray(
+              schema.reminderNotifications.id,
+              items.map((i) => i.id),
+            ),
+          );
         continue;
       }
       if (r.snoozedUntil && r.snoozedUntil > today) continue;
 
       const { send, skip } = collapseDue(items);
       if (skip.length) {
-        tx.update(schema.reminderNotifications)
+        await tx
+          .update(schema.reminderNotifications)
           .set({ status: "skipped" })
-          .where(inArray(schema.reminderNotifications.id, skip.map((i) => i.id)))
-          .run();
+          .where(
+            inArray(
+              schema.reminderNotifications.id,
+              skip.map((i) => i.id),
+            ),
+          );
       }
       if (!send) continue;
-      if (!allowedByLevel(send.kind, send.offsetDays, settings.notificationLevel)) {
-        tx.update(schema.reminderNotifications)
+      if (
+        !allowedByLevel(send.kind, send.offsetDays, settings.notificationLevel)
+      ) {
+        await tx
+          .update(schema.reminderNotifications)
           .set({ status: "skipped" })
-          .where(eq(schema.reminderNotifications.id, send.id))
-          .run();
+          .where(eq(schema.reminderNotifications.id, send.id));
         continue;
       }
       toSend.push({ notificationId: send.id, r, kind: send.kind });
     }
 
     // Overdue items keep surfacing (weekly) until the user resolves them.
-    const overdue = tx
+    const overdue = await tx
       .select({
         spaceId: schema.reminders.spaceId,
         id: schema.reminders.id,
@@ -119,10 +153,9 @@ export async function processDueNotifications(
           eq(schema.reminders.status, "active"),
           lte(schema.reminders.importantDate, addDays(today, -1)),
         ),
-      )
-      .all();
+      );
     if (overdue.length) {
-      const recent = tx
+      const recent = await tx
         .select({
           reminderId: schema.reminderNotifications.reminderId,
           scheduledFor: schema.reminderNotifications.scheduledFor,
@@ -137,12 +170,12 @@ export async function processDueNotifications(
               overdue.map((o) => o.id),
             ),
           ),
-        )
-        .all();
+        );
       const lastOverdue = new Map<string, ISODate>();
       for (const n of recent) {
         const cur = lastOverdue.get(n.reminderId);
-        if (!cur || n.scheduledFor > cur) lastOverdue.set(n.reminderId, n.scheduledFor);
+        if (!cur || n.scheduledFor > cur)
+          lastOverdue.set(n.reminderId, n.scheduledFor);
       }
       const threshold = addDays(today, -OVERDUE_RENOTIFY_DAYS);
       for (const r of overdue) {
@@ -151,17 +184,24 @@ export async function processDueNotifications(
         if (toSend.some((s) => s.r.id === r.id)) continue;
         const last = lastOverdue.get(r.id);
         if (last && last > threshold) continue;
-        const n = tx
+        const n = await tx
           .insert(schema.reminderNotifications)
-          .values({ reminderId: r.id, userId, kind: "overdue", scheduledFor: today })
+          .values({
+            reminderId: r.id,
+            userId,
+            kind: "overdue",
+            scheduledFor: today,
+          })
           .returning({ id: schema.reminderNotifications.id })
-          .get();
+          .then(oneRow);
         toSend.push({ notificationId: n.id, r, kind: "overdue" });
       }
     }
 
     const sentAt = new Date();
-    const enabledChannels = CHANNELS.filter((c) => c.available && c.isEnabled(settings));
+    const enabledChannels = CHANNELS.filter(
+      (c) => c.available && c.isEnabled(settings),
+    );
     for (const s of toSend) {
       const text = notificationText(
         {
@@ -172,20 +212,18 @@ export async function processDueNotifications(
         s.kind,
         today,
       );
-      tx.update(schema.reminderNotifications)
+      await tx
+        .update(schema.reminderNotifications)
         .set({ status: "sent", sentAt, title: text.title, body: text.body })
-        .where(eq(schema.reminderNotifications.id, s.notificationId))
-        .run();
+        .where(eq(schema.reminderNotifications.id, s.notificationId));
       for (const channel of enabledChannels) {
-        tx.insert(schema.notificationDeliveries)
-          .values({
-            notificationId: s.notificationId,
-            userId,
-            channel: channel.id,
-            status: channel.id === "in_app" ? "delivered" : "pending",
-            deliveredAt: channel.id === "in_app" ? sentAt : null,
-          })
-          .run();
+        await tx.insert(schema.notificationDeliveries).values({
+          notificationId: s.notificationId,
+          userId,
+          channel: channel.id,
+          status: channel.id === "in_app" ? "delivered" : "pending",
+          deliveredAt: channel.id === "in_app" ? sentAt : null,
+        });
       }
     }
   });
@@ -197,8 +235,11 @@ export async function processDueNotifications(
 /* In-app inbox                                                        */
 /* ------------------------------------------------------------------ */
 
-export function listInbox(userId: string, limit = 50): NotificationView[] {
-  return getDb()
+export async function listInbox(
+  userId: string,
+  limit = 50,
+): Promise<NotificationView[]> {
+  const rows = await getDb()
     .select()
     .from(schema.reminderNotifications)
     .where(
@@ -208,24 +249,23 @@ export function listInbox(userId: string, limit = 50): NotificationView[] {
       ),
     )
     .orderBy(desc(schema.reminderNotifications.sentAt))
-    .limit(limit)
-    .all()
-    .map((n) => ({
-      id: n.id,
-      reminderId: n.reminderId,
-      kind: n.kind,
-      offsetDays: n.offsetDays,
-      scheduledFor: n.scheduledFor,
-      status: n.status,
-      title: n.title,
-      body: n.body,
-      sentAt: n.sentAt?.getTime() ?? null,
-      readAt: n.readAt?.getTime() ?? null,
-    }));
+    .limit(limit);
+  return rows.map((n) => ({
+    id: n.id,
+    reminderId: n.reminderId,
+    kind: n.kind,
+    offsetDays: n.offsetDays,
+    scheduledFor: n.scheduledFor,
+    status: n.status,
+    title: n.title,
+    body: n.body,
+    sentAt: n.sentAt?.getTime() ?? null,
+    readAt: n.readAt?.getTime() ?? null,
+  }));
 }
 
-export function unreadCount(userId: string): number {
-  const row = getDb()
+export async function unreadCount(userId: string): Promise<number> {
+  const row = await getDb()
     .select({ n: count() })
     .from(schema.reminderNotifications)
     .where(
@@ -235,30 +275,38 @@ export function unreadCount(userId: string): number {
         isNull(schema.reminderNotifications.readAt),
       ),
     )
-    .get();
+    .then(firstRow);
   return row?.n ?? 0;
 }
 
-export function markRead(userId: string, ids: string[] | "all"): void {
+export async function markRead(
+  userId: string,
+  ids: string[] | "all",
+): Promise<void> {
   const db = getDb();
   const base = and(
     eq(schema.reminderNotifications.userId, userId),
     isNull(schema.reminderNotifications.readAt),
   );
-  db.update(schema.reminderNotifications)
+  await db
+    .update(schema.reminderNotifications)
     .set({ readAt: new Date() })
     .where(
-      ids === "all" ? base : and(base, inArray(schema.reminderNotifications.id, ids.slice(0, 200))),
-    )
-    .run();
+      ids === "all"
+        ? base
+        : and(
+            base,
+            inArray(schema.reminderNotifications.id, ids.slice(0, 200)),
+          ),
+    );
 }
 
 /* ------------------------------------------------------------------ */
 /* Browser channel                                                     */
 /* ------------------------------------------------------------------ */
 
-export function pendingBrowserDeliveries(userId: string) {
-  return getDb()
+export async function pendingBrowserDeliveries(userId: string) {
+  return await getDb()
     .select({
       deliveryId: schema.notificationDeliveries.id,
       notificationId: schema.reminderNotifications.id,
@@ -269,25 +317,33 @@ export function pendingBrowserDeliveries(userId: string) {
     .from(schema.notificationDeliveries)
     .innerJoin(
       schema.reminderNotifications,
-      eq(schema.reminderNotifications.id, schema.notificationDeliveries.notificationId),
+      eq(
+        schema.reminderNotifications.id,
+        schema.notificationDeliveries.notificationId,
+      ),
     )
-    .innerJoin(schema.reminders,eq(schema.reminders.id,schema.reminderNotifications.reminderId))
-    .innerJoin(schema.spaces,eq(schema.spaces.id,schema.reminders.spaceId))
+    .innerJoin(
+      schema.reminders,
+      eq(schema.reminders.id, schema.reminderNotifications.reminderId),
+    )
+    .innerJoin(schema.spaces, eq(schema.spaces.id, schema.reminders.spaceId))
     .where(
       and(
-        eq(schema.spaces.status,"active"),
+        eq(schema.spaces.status, "active"),
         eq(schema.notificationDeliveries.userId, userId),
         eq(schema.notificationDeliveries.channel, "browser"),
         eq(schema.notificationDeliveries.status, "pending"),
       ),
     )
-    .limit(5)
-    .all();
+    .limit(5);
 }
 
-export function ackBrowserDeliveries(userId: string, deliveryIds: string[]): void {
+export async function ackBrowserDeliveries(
+  userId: string,
+  deliveryIds: string[],
+): Promise<void> {
   if (deliveryIds.length === 0) return;
-  getDb()
+  await getDb()
     .update(schema.notificationDeliveries)
     .set({ status: "delivered", deliveredAt: new Date() })
     .where(
@@ -295,6 +351,5 @@ export function ackBrowserDeliveries(userId: string, deliveryIds: string[]): voi
         eq(schema.notificationDeliveries.userId, userId),
         inArray(schema.notificationDeliveries.id, deliveryIds.slice(0, 50)),
       ),
-    )
-    .run();
+    );
 }

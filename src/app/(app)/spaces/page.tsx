@@ -14,8 +14,8 @@ export default async function SpacesPage({
 }) {
   const user = await requireUser();
   const archived = (await searchParams).archived === "1";
-  const spaces = listSpaces(user.id, archived);
-  const reminders = listReminders(user.id, todayISO(user.timezone), {
+  const spaces = await listSpaces(user.id, archived);
+  const reminders = await listReminders(user.id, todayISO(user.timezone), {
     includeArchivedSpaces: true,
   });
   return (

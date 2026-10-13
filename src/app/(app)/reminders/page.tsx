@@ -26,13 +26,21 @@ export default async function RemindersPage({
   const params = await searchParams;
   const space = typeof params.space === "string" ? params.space : undefined;
   const query = parseRegisterQuery(params);
-  const all = listReminders(user.id, today, {spaceId:space});
-  const categories = listCategories(user.id,space);
+  const all = await listReminders(user.id, today, { spaceId: space });
+  const categories = await listCategories(user.id, space);
   const results = applyRegister(all, query);
 
   const counts: Record<string, number> = {};
   for (const v of REGISTER_VIEWS) {
-    counts[v.value] = applyRegister(all, { ...query, view: v.value, q: "" , category: "", type: "", who: "", status: "" }).length;
+    counts[v.value] = applyRegister(all, {
+      ...query,
+      view: v.value,
+      q: "",
+      category: "",
+      type: "",
+      who: "",
+      status: "",
+    }).length;
   }
   const people = Array.from(
     new Set(all.map((r) => r.associatedWith).filter((x): x is string => !!x)),
@@ -46,7 +54,10 @@ export default async function RemindersPage({
         title="Reminders"
         subtitle="Every date PocketMinder is keeping for you."
         action={
-          <ButtonLink href={space?`/reminders/new?space=${space}`:"/reminders/new"} variant="secondary">
+          <ButtonLink
+            href={space ? `/reminders/new?space=${space}` : "/reminders/new"}
+            variant="secondary"
+          >
             <Plus className="size-4" /> Add reminder
           </ButtonLink>
         }
@@ -62,9 +73,13 @@ export default async function RemindersPage({
       </Suspense>
       <div className="mt-6">
         {all.length === 0 ? (
-          <EmptyNote>Nothing here yet. Use “Remember Something” to add your first date.</EmptyNote>
+          <EmptyNote>
+            Nothing here yet. Use “Remember Something” to add your first date.
+          </EmptyNote>
         ) : results.length === 0 ? (
-          <EmptyNote>No reminders match. Try a different view, search or filter.</EmptyNote>
+          <EmptyNote>
+            No reminders match. Try a different view, search or filter.
+          </EmptyNote>
         ) : (
           <div className="rounded-2xl border border-line bg-surface p-1 shadow-card sm:p-2">
             <ReminderList reminders={results} />

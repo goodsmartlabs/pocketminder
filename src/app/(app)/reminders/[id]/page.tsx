@@ -1,5 +1,12 @@
 import clsx from "clsx";
-import { ArrowLeft, BellOff, Check, Clock, RefreshCw, Repeat } from "lucide-react";
+import {
+  ArrowLeft,
+  BellOff,
+  Check,
+  Clock,
+  RefreshCw,
+  Repeat,
+} from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Attachments } from "@/components/reminders/Attachments";
@@ -23,7 +30,11 @@ import {
 } from "@/lib/domain";
 import { countdown, escalationMessage, STATUS_TONE } from "@/lib/status";
 import type { NotificationView } from "@/lib/types";
-import { getReminderDetail, NotFoundError, suggestedRenewalDate } from "@/server/reminders";
+import {
+  getReminderDetail,
+  NotFoundError,
+  suggestedRenewalDate,
+} from "@/server/reminders";
 
 export async function generateMetadata() {
   return { title: "Reminder" };
@@ -48,11 +59,19 @@ function Section({
   );
 }
 
-function Detail({ label, children }: { label: string; children: React.ReactNode }) {
+function Detail({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex items-baseline justify-between gap-4 border-b border-line/70 py-2.5 last:border-0">
       <dt className="text-[13px] text-ink-3">{label}</dt>
-      <dd className="text-right text-[14px] font-medium text-ink">{children}</dd>
+      <dd className="text-right text-[14px] font-medium text-ink">
+        {children}
+      </dd>
     </div>
   );
 }
@@ -78,24 +97,39 @@ const HISTORY_LABEL: Record<string, string> = {
   attachment_removed: "Attachment removed",
 };
 
-export default async function ReminderPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ReminderPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = await params;
   const user = await requireUser();
   const today = todayISO(user.timezone);
   let detail;
   try {
-    detail = getReminderDetail(user.id, id, today);
+    detail = await getReminderDetail(user.id, id, today);
   } catch (e) {
     if (e instanceof NotFoundError) notFound();
     throw e;
   }
-  const { reminder: r, notifications, attachments, renewals, history, periods } = detail;
+  const {
+    reminder: r,
+    notifications,
+    attachments,
+    renewals,
+    history,
+    periods,
+  } = detail;
   const tone = STATUS_TONE[r.status];
   const c = countdown(r.daysRemaining);
   const active = r.lifecycle === "active";
-  const prepStart = r.offsets.length ? addDays(r.importantDate, -Math.max(...r.offsets)) : null;
+  const prepStart = r.offsets.length
+    ? addDays(r.importantDate, -Math.max(...r.offsets))
+    : null;
   const currentPeriod = periods[0]?.id ?? null;
-  const visibleNotifications = notifications.filter((n) => n.status !== "cancelled");
+  const visibleNotifications = notifications.filter(
+    (n) => n.status !== "cancelled",
+  );
 
   return (
     <div className="animate-fade-up space-y-6">
@@ -111,7 +145,10 @@ export default async function ReminderPage({ params }: { params: Promise<{ id: s
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] text-ink-3">
           {r.category && (
             <span className="inline-flex items-center gap-1.5">
-              <span className="size-2 rounded-full" style={{ backgroundColor: r.category.color }} />
+              <span
+                className="size-2 rounded-full"
+                style={{ backgroundColor: r.category.color }}
+              />
               {r.category.name}
             </span>
           )}
@@ -134,7 +171,9 @@ export default async function ReminderPage({ params }: { params: Promise<{ id: s
             <p className="font-display mt-2 text-4xl font-medium tracking-tight text-ink sm:text-5xl">
               {formatDisplay(r.importantDate)}
             </p>
-            {r.associatedWith && <p className="mt-2 text-[15px] text-ink-2">{r.associatedWith}</p>}
+            {r.associatedWith && (
+              <p className="mt-2 text-[15px] text-ink-2">{r.associatedWith}</p>
+            )}
           </div>
           {active ? (
             <div className={clsx("sm:text-right", toneText[tone])}>
@@ -142,11 +181,18 @@ export default async function ReminderPage({ params }: { params: Promise<{ id: s
                 {c.value}
               </p>
               {c.unit && (
-                <p className="mt-2 text-[13px] font-semibold uppercase tracking-[0.14em]">{c.unit}</p>
+                <p className="mt-2 text-[13px] font-semibold uppercase tracking-[0.14em]">
+                  {c.unit}
+                </p>
               )}
             </div>
           ) : (
-            <div className={clsx("flex items-center gap-2 text-lg font-medium", toneText[tone])}>
+            <div
+              className={clsx(
+                "flex items-center gap-2 text-lg font-medium",
+                toneText[tone],
+              )}
+            >
               {r.lifecycle === "renewed" ? (
                 <RefreshCw className="size-5" />
               ) : (
@@ -196,8 +242,10 @@ export default async function ReminderPage({ params }: { params: Promise<{ id: s
           <div className="mt-5 flex items-start gap-3 rounded-2xl bg-info-bg p-4 text-[14px] text-info">
             <BellOff className="mt-0.5 size-4 shrink-0" />
             <p>
-              Notifications snoozed until <strong>{formatLong(r.snoozedUntil)}</strong>. The{" "}
-              {r.reminderType === "expiry" ? "expiry" : "important"} date has not changed.
+              Notifications snoozed until{" "}
+              <strong>{formatLong(r.snoozedUntil)}</strong>. The{" "}
+              {r.reminderType === "expiry" ? "expiry" : "important"} date has
+              not changed.
             </p>
           </div>
         )}
@@ -218,7 +266,9 @@ export default async function ReminderPage({ params }: { params: Promise<{ id: s
               <Detail label="Status">
                 <StatusPill status={r.status} />
               </Detail>
-              <Detail label="Important date">{formatLong(r.importantDate)}</Detail>
+              <Detail label="Important date">
+                {formatLong(r.importantDate)}
+              </Detail>
               {active && (
                 <Detail label="Days remaining">
                   {r.daysRemaining >= 0
@@ -227,21 +277,31 @@ export default async function ReminderPage({ params }: { params: Promise<{ id: s
                 </Detail>
               )}
               <Detail label="Category">{r.category?.name ?? "—"}</Detail>
-              <Detail label="Reminder type">{reminderTypeLabel(r.reminderType)}</Detail>
+              <Detail label="Reminder type">
+                {reminderTypeLabel(r.reminderType)}
+              </Detail>
               <Detail label="Who / what">{r.associatedWith ?? "—"}</Detail>
               <Detail label="Priority">
                 {PRIORITIES.find((p) => p.value === r.priority)?.label}
               </Detail>
               <Detail label="Repeats">{recurrenceLabel(r.recurrence)}</Detail>
-              <Detail label="Created">{formatTimestamp(r.createdAt, user.timezone)}</Detail>
+              <Detail label="Created">
+                {formatTimestamp(r.createdAt, user.timezone)}
+              </Detail>
               {r.resolvedAt && (
-                <Detail label="Resolved">{formatTimestamp(r.resolvedAt, user.timezone)}</Detail>
+                <Detail label="Resolved">
+                  {formatTimestamp(r.resolvedAt, user.timezone)}
+                </Detail>
               )}
               {r.renewedAt && (
-                <Detail label="Renewed">{formatTimestamp(r.renewedAt, user.timezone)}</Detail>
+                <Detail label="Renewed">
+                  {formatTimestamp(r.renewedAt, user.timezone)}
+                </Detail>
               )}
               {r.archivedAt && (
-                <Detail label="Archived">{formatTimestamp(r.archivedAt, user.timezone)}</Detail>
+                <Detail label="Archived">
+                  {formatTimestamp(r.archivedAt, user.timezone)}
+                </Detail>
               )}
             </dl>
           </Section>
@@ -254,7 +314,10 @@ export default async function ReminderPage({ params }: { params: Promise<{ id: s
             ) : (
               <p className="text-[14px] text-ink-3">
                 No notes.{" "}
-                <Link href={`/reminders/${r.id}/edit`} className="text-accent hover:underline">
+                <Link
+                  href={`/reminders/${r.id}/edit`}
+                  className="text-accent hover:underline"
+                >
                   Add some
                 </Link>
               </p>
@@ -269,7 +332,9 @@ export default async function ReminderPage({ params }: { params: Promise<{ id: s
         <div className="space-y-6">
           <Section title="Reminder schedule">
             {r.offsets.length === 0 && visibleNotifications.length === 0 ? (
-              <p className="text-[14px] text-ink-3">No advance reminders set.</p>
+              <p className="text-[14px] text-ink-3">
+                No advance reminders set.
+              </p>
             ) : (
               <ul className="space-y-1">
                 {visibleNotifications.map((n) => (
@@ -286,7 +351,9 @@ export default async function ReminderPage({ params }: { params: Promise<{ id: s
                       ) : (
                         <Clock className="size-4 text-ink-3" />
                       )}
-                      <span className="tabular">{formatMedium(n.scheduledFor)}</span>
+                      <span className="tabular">
+                        {formatMedium(n.scheduledFor)}
+                      </span>
                     </span>
                     <span className="text-[13px] text-ink-3">
                       {n.kind === "snooze"
@@ -300,13 +367,14 @@ export default async function ReminderPage({ params }: { params: Promise<{ id: s
                     </span>
                   </li>
                 ))}
-                {active && visibleNotifications.every((n) => n.status !== "pending") && (
-                  <li className="px-2 pt-2 text-[13px] text-ink-3">
-                    {r.daysRemaining < 0
-                      ? "Overdue reminders resurface weekly until resolved."
-                      : "All advance reminders have passed."}
-                  </li>
-                )}
+                {active &&
+                  visibleNotifications.every((n) => n.status !== "pending") && (
+                    <li className="px-2 pt-2 text-[13px] text-ink-3">
+                      {r.daysRemaining < 0
+                        ? "Overdue reminders resurface weekly until resolved."
+                        : "All advance reminders have passed."}
+                    </li>
+                  )}
               </ul>
             )}
           </Section>
@@ -314,26 +382,33 @@ export default async function ReminderPage({ params }: { params: Promise<{ id: s
           <Section title="Renewal history">
             {renewals.length === 0 && periods.length <= 1 ? (
               <p className="text-[14px] text-ink-3">
-                No renewals yet. When you renew, the previous period stays on record here.
+                No renewals yet. When you renew, the previous period stays on
+                record here.
               </p>
             ) : (
               <ol className="relative space-y-4 border-l border-line pl-5">
                 {periods.map((p) => {
-                  const renewal = renewals.find((x) => x.fromReminderId === p.id);
+                  const renewal = renewals.find(
+                    (x) => x.fromReminderId === p.id,
+                  );
                   const isThis = p.id === r.id;
                   return (
                     <li key={p.id} className="relative">
                       <span
                         className={clsx(
                           "absolute -left-[26px] top-1.5 size-2.5 rounded-full border-2 border-surface",
-                          p.lifecycle === "active" ? "bg-accent" : "bg-line-strong",
+                          p.lifecycle === "active"
+                            ? "bg-accent"
+                            : "bg-line-strong",
                         )}
                       />
                       <Link
                         href={`/reminders/${p.id}`}
                         className={clsx(
                           "block rounded-lg text-[14px]",
-                          isThis ? "font-semibold text-ink" : "text-ink-2 hover:text-ink",
+                          isThis
+                            ? "font-semibold text-ink"
+                            : "text-ink-2 hover:text-ink",
                         )}
                       >
                         Period {p.cycle}: {formatLong(p.importantDate)}
@@ -362,8 +437,12 @@ export default async function ReminderPage({ params }: { params: Promise<{ id: s
               {history.map((h) => (
                 <li key={h.id} className="text-[14px]">
                   <p className="text-ink">
-                    <span className="font-medium">{HISTORY_LABEL[h.event] ?? h.event}</span>
-                    {h.detail && <span className="text-ink-2"> — {h.detail}</span>}
+                    <span className="font-medium">
+                      {HISTORY_LABEL[h.event] ?? h.event}
+                    </span>
+                    {h.detail && (
+                      <span className="text-ink-2"> — {h.detail}</span>
+                    )}
                   </p>
                   <p className="text-[12px] text-ink-3">
                     {formatTimestamp(h.createdAt, user.timezone)}

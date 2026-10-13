@@ -15,7 +15,7 @@ export default async function SpaceSettings({
   const u = await requireUser();
   let s;
   try {
-    s = getSpace(u.id, id);
+    s = await getSpace(u.id, id);
   } catch {
     notFound();
   }
@@ -27,16 +27,18 @@ export default async function SpaceSettings({
       />
       <SpaceForm space={s} />
       <CategoriesSection
-        categories={listCategories(u.id, id)}
+        categories={await listCategories(u.id, id)}
         initialSpaceId={id}
       />
       <SpaceManagement
         space={s}
         count={
-          listReminders(u.id, todayISO(u.timezone), {
-            spaceId: id,
-            includeArchivedSpaces: true,
-          }).length
+          (
+            await listReminders(u.id, todayISO(u.timezone), {
+              spaceId: id,
+              includeArchivedSpaces: true,
+            })
+          ).length
         }
       />
     </div>

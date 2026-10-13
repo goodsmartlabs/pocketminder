@@ -14,7 +14,7 @@ export default async function SpaceCalendar({
   const u = await requireUser();
   let s;
   try {
-    s = getSpace(u.id, id);
+    s = await getSpace(u.id, id);
   } catch {
     notFound();
   }
@@ -27,11 +27,11 @@ export default async function SpaceCalendar({
       />
       <CalendarView
         today={today}
-        reminders={listReminders(u.id, today, {
+        reminders={await listReminders(u.id, today, {
           spaceId: id,
           includeArchivedSpaces: true,
         })}
-        categories={listCategories(u.id, id)}
+        categories={await listCategories(u.id, id)}
       />
     </>
   );

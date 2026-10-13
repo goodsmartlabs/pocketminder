@@ -1,7 +1,12 @@
 import { listSpaces } from "@/server/spaces";
 import { SpaceForm } from "@/components/spaces/SpaceForms";
 import clsx from "clsx";
-import { AlertTriangle, CalendarClock, CalendarRange, Sparkle } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  CalendarRange,
+  Sparkle,
+} from "lucide-react";
 import Link from "next/link";
 import { CaptureBar, EmptyHome } from "@/components/home/CaptureBar";
 import {
@@ -52,7 +57,11 @@ function SummaryCard({
       <p
         className={clsx(
           "font-display mt-3 text-4xl font-medium leading-none tabular",
-          active && tone === "critical" ? "text-critical" : active ? "text-ink" : "text-ink-3",
+          active && tone === "critical"
+            ? "text-critical"
+            : active
+              ? "text-ink"
+              : "text-ink-3",
         )}
       >
         {value}
@@ -63,9 +72,26 @@ function SummaryCard({
 
 export default async function HomePage() {
   const user = await requireUser();
-  if (!listSpaces(user.id).length && !listSpaces(user.id,true).length) return <div className="max-w-xl space-y-5"><h1 className="font-display text-3xl">Create your first Minder Space</h1><p>Spaces keep different parts of your life organized. Work holds contracts, licences and staff documents. Personal holds passports, subscriptions and appointments. School holds exams, registrations and deadlines.</p><SpaceForm /></div>;
+  if (
+    !(await listSpaces(user.id)).length &&
+    !(await listSpaces(user.id, true)).length
+  )
+    return (
+      <div className="max-w-xl space-y-5">
+        <h1 className="font-display text-3xl">
+          Create your first Minder Space
+        </h1>
+        <p>
+          Spaces keep different parts of your life organized. Work holds
+          contracts, licences and staff documents. Personal holds passports,
+          subscriptions and appointments. School holds exams, registrations and
+          deadlines.
+        </p>
+        <SpaceForm />
+      </div>
+    );
   const today = todayISO(user.timezone);
-  const all = listReminders(user.id, today);
+  const all = await listReminders(user.id, today);
 
   if (all.length === 0) return <EmptyHome name={user.name.split(" ")[0]} />;
 
@@ -123,7 +149,18 @@ export default async function HomePage() {
         />
       </section>
 
-      <section><SectionHeader title="Needs Your Attention"/><ReminderList reminders={all.filter(r=>r.lifecycle==="active"&&["needs_attention","urgent","due_today","overdue"].includes(r.status))}/></section>
+      <section>
+        <SectionHeader title="Needs Your Attention" />
+        <ReminderList
+          reminders={all.filter(
+            (r) =>
+              r.lifecycle === "active" &&
+              ["needs_attention", "urgent", "due_today", "overdue"].includes(
+                r.status,
+              ),
+          )}
+        />
+      </section>
       {d.next && (
         <section>
           <HeroReminder
@@ -152,7 +189,9 @@ export default async function HomePage() {
             <ReminderList reminders={d.today} />
           </div>
         ) : (
-          <EmptyNote>Nothing needs your attention today. Enjoy the quiet.</EmptyNote>
+          <EmptyNote>
+            Nothing needs your attention today. Enjoy the quiet.
+          </EmptyNote>
         )}
       </section>
 
@@ -161,7 +200,10 @@ export default async function HomePage() {
           title="Coming up"
           count={d.comingUp.length || undefined}
           action={
-            <Link href="/calendar" className="text-[13px] font-medium text-accent hover:underline">
+            <Link
+              href="/calendar"
+              className="text-[13px] font-medium text-accent hover:underline"
+            >
               Calendar
             </Link>
           }
@@ -194,7 +236,9 @@ export default async function HomePage() {
           <div className="rounded-2xl border border-line bg-surface/60 p-1 sm:p-2">
             <ReminderList reminders={d.later.slice(0, 5)} showStatus={false} />
           </div>
-          <p className="mt-2 px-1 text-[13px] text-ink-3">Safely further away. Nothing to do yet.</p>
+          <p className="mt-2 px-1 text-[13px] text-ink-3">
+            Safely further away. Nothing to do yet.
+          </p>
         </section>
       )}
     </div>

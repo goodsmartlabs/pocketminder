@@ -15,8 +15,8 @@ export async function saveSpaceAction(
   const user = await requireUser();
   try {
     const result = id
-      ? (editSpace(user.id, id, raw), id)
-      : createSpace(user.id, raw);
+      ? (await editSpace(user.id, id, raw), id)
+      : await createSpace(user.id, raw);
     revalidatePath("/", "layout");
     return { ok: true, data: { id: result } };
   } catch (e) {
@@ -36,7 +36,7 @@ export async function manageSpaceAction(
   const user = await requireUser();
   try {
     if (action === "archive" || action === "restore")
-      archiveSpace(user.id, id, action === "archive");
+      await archiveSpace(user.id, id, action === "archive");
     else if (action === "move" || action === "delete")
       await deleteSpace(user.id, id, action, destination);
     else throw new Error("Invalid action");

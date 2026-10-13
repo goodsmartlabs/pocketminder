@@ -1,4 +1,5 @@
 import { getSpace } from "./spaces";
+import { firstRow, oneRow } from "@/lib/db/first";
 import "server-only";
 import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import { getDb, schema, type DB } from "@/lib/db";
@@ -45,26 +46,26 @@ export class NotFoundError extends Error {
 /* Account setup & settings                                            */
 /* ------------------------------------------------------------------ */
 
-export function ensureUserSetup(userId: string, conn: Conn = getDb()): void {
-  conn.insert(schema.userSettings).values({ userId }).onConflictDoNothing().run();
-
+export async function ensureUserSetup(
+  userId: string,
+  conn: Conn = getDb(),
+): Promise<void> {
+  await conn
+    .insert(schema.userSettings)
+    .values({ userId })
+    .onConflictDoNothing();
 }
 
-export function getSettings(userId: string): SettingsView {
+export async function getSettings(userId: string): Promise<SettingsView> {
   const db = getDb();
-  let row = db
-    .select()
-    .from(schema.userSettings)
-    .where(eq(schema.userSettings.userId, userId))
-    .get();
-  if (!row) {
-    ensureUserSetup(userId);
-    row = db
+  const read = () =>
+    db
       .select()
       .from(schema.userSettings)
-      .where(eq(schema.userSettings.userId, userId))
-      .get()!;
-  }
+      .where(eq(schema.userSettings.userId, userId));
+  const existing = await read().then(firstRow);
+  if (!existing) await ensureUserSetup(userId);
+  const row: schema.UserSettings = existing ?? oneRow(await read());
   return {
     defaultOffsets: parseOffsets(row.defaultOffsets),
     notificationLevel: row.notificationLevel,
@@ -92,23 +93,41 @@ function toCategoryView(c: Category): CategoryView {
   };
 }
 
-export function listCategories(userId: string, spaceId?: string): CategoryView[] {
-  return getDb()
+export async function listCategories(
+  userId: string,
+  spaceId?: string,
+): Promise<CategoryView[]> {
+  const rows = await getDb()
     .select()
     .from(schema.categories)
-    .where(and(eq(schema.categories.userId, userId), spaceId ? eq(schema.categories.spaceId,spaceId) : undefined))
-    .orderBy(asc(schema.categories.sortOrder), asc(schema.categories.name))
-    .all()
-    .map(toCategoryView);
+    .where(
+      and(
+        eq(schema.categories.userId, userId),
+        spaceId ? eq(schema.categories.spaceId, spaceId) : undefined,
+      ),
+    )
+    .orderBy(asc(schema.categories.sortOrder), asc(schema.categories.name));
+  return rows.map(toCategoryView);
 }
 
-function assertCategory(conn: Conn, userId: string, categoryId: string | null, spaceId: string): string | null {
+async function assertCategory(
+  conn: Conn,
+  userId: string,
+  categoryId: string | null,
+  spaceId: string,
+): Promise<string | null> {
   if (!categoryId) return null;
-  const c = conn
+  const c = await conn
     .select({ id: schema.categories.id })
     .from(schema.categories)
-    .where(and(eq(schema.categories.id, categoryId), eq(schema.categories.userId, userId), eq(schema.categories.spaceId,spaceId)))
-    .get();
+    .where(
+      and(
+        eq(schema.categories.id, categoryId),
+        eq(schema.categories.userId, userId),
+        eq(schema.categories.spaceId, spaceId),
+      ),
+    )
+    .then(firstRow);
   if (!c) throw new NotFoundError("Category not found");
   return c.id;
 }
@@ -137,11 +156,11 @@ function toView(
   category: CategoryView | null,
   today: ISODate,
   nextNotificationDate: ISODate | null,
-  space?: SpaceView,
+  space: SpaceView,
 ): ReminderView {
   return {
     spaceId: r.spaceId,
-    space: space ?? getSpace(r.userId, r.spaceId),
+    space,
     id: r.id,
     seriesId: r.seriesId,
     cycle: r.cycle,
@@ -153,13 +172,18 @@ function toView(
     associatedWith: r.associatedWith,
     lifecycle: r.status,
     status: computeStatus(
-      { lifecycle: r.status, importantDate: r.importantDate, priority: r.priority },
+      {
+        lifecycle: r.status,
+        importantDate: r.importantDate,
+        priority: r.priority,
+      },
       today,
     ),
     priority: r.priority,
     recurrence: recurrenceOf(r),
     offsets: parseOffsets(r.notifyOffsets),
-    snoozedUntil: r.snoozedUntil && r.snoozedUntil > today ? r.snoozedUntil : null,
+    snoozedUntil:
+      r.snoozedUntil && r.snoozedUntil > today ? r.snoozedUntil : null,
     daysRemaining: diffDays(today, r.importantDate),
     nextNotificationDate,
     createdAt: r.createdAt.getTime(),
@@ -171,8 +195,12 @@ function toView(
 }
 
 /** Next pending notification date for each reminder, in one query. */
-function nextNotificationMap(conn: Conn, userId: string, today: ISODate): Map<string, ISODate> {
-  const rows = conn
+async function nextNotificationMap(
+  conn: Conn,
+  userId: string,
+  today: ISODate,
+): Promise<Map<string, ISODate>> {
+  const rows = await conn
     .select({
       reminderId: schema.reminderNotifications.reminderId,
       scheduledFor: schema.reminderNotifications.scheduledFor,
@@ -183,13 +211,13 @@ function nextNotificationMap(conn: Conn, userId: string, today: ISODate): Map<st
         eq(schema.reminderNotifications.userId, userId),
         eq(schema.reminderNotifications.status, "pending"),
       ),
-    )
-    .all();
+    );
   const map = new Map<string, ISODate>();
   for (const row of rows) {
     if (row.scheduledFor < today) continue;
     const cur = map.get(row.reminderId);
-    if (!cur || row.scheduledFor < cur) map.set(row.reminderId, row.scheduledFor);
+    if (!cur || row.scheduledFor < cur)
+      map.set(row.reminderId, row.scheduledFor);
   }
   return map;
 }
@@ -198,75 +226,125 @@ function nextNotificationMap(conn: Conn, userId: string, today: ISODate): Map<st
 /* Reads                                                               */
 /* ------------------------------------------------------------------ */
 
-export function listReminders(
+export async function listReminders(
   userId: string,
   today: ISODate,
-  opts: { lifecycles?: Lifecycle[]; spaceId?: string; includeArchivedSpaces?: boolean } = {},
-): ReminderView[] {
+  opts: {
+    lifecycles?: Lifecycle[];
+    spaceId?: string;
+    includeArchivedSpaces?: boolean;
+  } = {},
+): Promise<ReminderView[]> {
   const db = getDb();
-  const cats = new Map(listCategories(userId).map((c) => [c.id, c]));
+  const cats = new Map((await listCategories(userId)).map((c) => [c.id, c]));
   const where = opts.lifecycles?.length
-    ? and(eq(schema.reminders.userId, userId), inArray(schema.reminders.status, opts.lifecycles))
+    ? and(
+        eq(schema.reminders.userId, userId),
+        inArray(schema.reminders.status, opts.lifecycles),
+      )
     : eq(schema.reminders.userId, userId);
-  const rows = db
+  const rows = await db
     .select()
     .from(schema.reminders)
     .where(where)
-    .orderBy(asc(schema.reminders.importantDate))
-    .all();
-  const next = nextNotificationMap(db, userId, today);
-  const spaces = new Map(db.select().from(schema.spaces).where(eq(schema.spaces.userId,userId)).all().map(s=>[s.id,s]));
-  return rows.filter(r => (!opts.spaceId || r.spaceId === opts.spaceId) && (opts.includeArchivedSpaces || spaces.get(r.spaceId)?.status === "active")).map((r) =>
-    toView(r, r.categoryId ? (cats.get(r.categoryId) ?? null) : null, today, next.get(r.id) ?? null, spaces.get(r.spaceId)),
+    .orderBy(asc(schema.reminders.importantDate));
+  const next = await nextNotificationMap(db, userId, today);
+  const spaceRows = await db
+    .select()
+    .from(schema.spaces)
+    .where(eq(schema.spaces.userId, userId));
+  const spaces = new Map<string, SpaceView>(
+    spaceRows.map((s) => [
+      s.id,
+      {
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        icon: s.icon,
+        color: s.color,
+        status: s.status,
+      },
+    ]),
   );
+  return rows
+    .filter(
+      (r) =>
+        (!opts.spaceId || r.spaceId === opts.spaceId) &&
+        (opts.includeArchivedSpaces ||
+          spaces.get(r.spaceId)?.status === "active"),
+    )
+    .map((r) =>
+      toView(
+        r,
+        r.categoryId ? (cats.get(r.categoryId) ?? null) : null,
+        today,
+        next.get(r.id) ?? null,
+        spaces.get(r.spaceId)!,
+      ),
+    );
 }
 
-function getRow(conn: Conn, userId: string, id: string): ReminderRow {
-  const row = conn
+async function getRow(
+  conn: Conn,
+  userId: string,
+  id: string,
+): Promise<ReminderRow> {
+  const row = await conn
     .select()
     .from(schema.reminders)
-    .where(and(eq(schema.reminders.id, id), eq(schema.reminders.userId, userId)))
-    .get();
+    .where(
+      and(eq(schema.reminders.id, id), eq(schema.reminders.userId, userId)),
+    )
+    .then(firstRow);
   if (!row) throw new NotFoundError();
   return row;
 }
 
-export function getReminderDetail(userId: string, id: string, today: ISODate): ReminderDetail {
+export async function getReminderDetail(
+  userId: string,
+  id: string,
+  today: ISODate,
+): Promise<ReminderDetail> {
   const db = getDb();
-  const row = getRow(db, userId, id);
+  const row = await getRow(db, userId, id);
   const cat = row.categoryId
-    ? db
+    ? await db
         .select()
         .from(schema.categories)
         .where(eq(schema.categories.id, row.categoryId))
-        .get()
+        .then(firstRow)
     : undefined;
 
-  const notifications = db
+  const notifications = await db
     .select()
     .from(schema.reminderNotifications)
     .where(eq(schema.reminderNotifications.reminderId, id))
-    .orderBy(asc(schema.reminderNotifications.scheduledFor))
-    .all();
+    .orderBy(asc(schema.reminderNotifications.scheduledFor));
   const nextPending =
-    notifications.find((n) => n.status === "pending" && n.scheduledFor >= today)?.scheduledFor ??
-    null;
+    notifications.find((n) => n.status === "pending" && n.scheduledFor >= today)
+      ?.scheduledFor ?? null;
 
-  const attachments = db
+  const attachments = await db
     .select()
     .from(schema.attachments)
-    .where(and(eq(schema.attachments.reminderId, id), eq(schema.attachments.userId, userId)))
-    .orderBy(desc(schema.attachments.createdAt))
-    .all();
-
-  const renewals = db
+    .where(
+      and(
+        eq(schema.attachments.reminderId, id),
+        eq(schema.attachments.userId, userId),
+      ),
+    )
+    .orderBy(desc(schema.attachments.createdAt));
+  const renewals = await db
     .select()
     .from(schema.renewals)
-    .where(and(eq(schema.renewals.seriesId, row.seriesId), eq(schema.renewals.userId, userId)))
-    .orderBy(desc(schema.renewals.renewedAt))
-    .all();
-
-  const history = db
+    .where(
+      and(
+        eq(schema.renewals.seriesId, row.seriesId),
+        eq(schema.renewals.userId, userId),
+      ),
+    )
+    .orderBy(desc(schema.renewals.renewedAt));
+  const history = await db
     .select()
     .from(schema.reminderHistory)
     .where(
@@ -276,10 +354,8 @@ export function getReminderDetail(userId: string, id: string, today: ISODate): R
       ),
     )
     .orderBy(desc(schema.reminderHistory.createdAt))
-    .limit(100)
-    .all();
-
-  const periods = db
+    .limit(100);
+  const periods = await db
     .select({
       id: schema.reminders.id,
       cycle: schema.reminders.cycle,
@@ -287,12 +363,21 @@ export function getReminderDetail(userId: string, id: string, today: ISODate): R
       lifecycle: schema.reminders.status,
     })
     .from(schema.reminders)
-    .where(and(eq(schema.reminders.seriesId, row.seriesId), eq(schema.reminders.userId, userId)))
-    .orderBy(desc(schema.reminders.cycle))
-    .all();
-
+    .where(
+      and(
+        eq(schema.reminders.seriesId, row.seriesId),
+        eq(schema.reminders.userId, userId),
+      ),
+    )
+    .orderBy(desc(schema.reminders.cycle));
   return {
-    reminder: toView(row, cat ? toCategoryView(cat) : null, today, nextPending),
+    reminder: toView(
+      row,
+      cat ? toCategoryView(cat) : null,
+      today,
+      nextPending,
+      await getSpace(userId, row.spaceId),
+    ),
     notifications: notifications.map((n) => ({
       id: n.id,
       reminderId: n.reminderId,
@@ -337,10 +422,14 @@ export function getReminderDetail(userId: string, id: string, today: ISODate): R
 /* Search                                                              */
 /* ------------------------------------------------------------------ */
 
-export function searchReminders(userId: string, query: string, today: ISODate): ReminderView[] {
+export async function searchReminders(
+  userId: string,
+  query: string,
+  today: ISODate,
+): Promise<ReminderView[]> {
   const q = query.trim();
   if (!q) return [];
-  return listReminders(userId, today)
+  return (await listReminders(userId, today))
     .filter((r) => matchesText(r, q))
     .sort((a, b) => {
       // Active first, then nearest date.
@@ -356,27 +445,24 @@ export function searchReminders(userId: string, query: string, today: ISODate): 
 /* History & notifications helpers                                     */
 /* ------------------------------------------------------------------ */
 
-function logHistory(
+async function logHistory(
   conn: Conn,
   r: Pick<ReminderRow, "id" | "userId" | "seriesId">,
   event: string,
   detail?: string | null,
-): void {
-  conn
-    .insert(schema.reminderHistory)
-    .values({
-      reminderId: r.id,
-      userId: r.userId,
-      seriesId: r.seriesId,
-      event,
-      detail: detail ?? null,
-    })
-    .run();
+): Promise<void> {
+  await conn.insert(schema.reminderHistory).values({
+    reminderId: r.id,
+    userId: r.userId,
+    seriesId: r.seriesId,
+    event,
+    detail: detail ?? null,
+  });
 }
 
 /** Drop unsent notifications so they can be re-planned (or so nothing fires). */
-function cancelPending(conn: Conn, reminderId: string): void {
-  conn
+async function cancelPending(conn: Conn, reminderId: string): Promise<void> {
+  await conn
     .update(schema.reminderNotifications)
     .set({ status: "cancelled" })
     .where(
@@ -384,38 +470,41 @@ function cancelPending(conn: Conn, reminderId: string): void {
         eq(schema.reminderNotifications.reminderId, reminderId),
         eq(schema.reminderNotifications.status, "pending"),
       ),
-    )
-    .run();
+    );
 }
 
 /** (Re)generate notification records for a reminder from its offsets. */
-function scheduleNotifications(conn: Conn, r: ReminderRow, today: ISODate): void {
-  cancelPending(conn, r.id);
+async function scheduleNotifications(
+  conn: Conn,
+  r: ReminderRow,
+  today: ISODate,
+): Promise<void> {
+  await cancelPending(conn, r.id);
   // Purge cancelled advance rows so the table doesn't grow on every edit.
-  conn
+  await conn
     .delete(schema.reminderNotifications)
     .where(
       and(
         eq(schema.reminderNotifications.reminderId, r.id),
         eq(schema.reminderNotifications.status, "cancelled"),
       ),
-    )
-    .run();
+    );
   if (r.status !== "active") return;
-  const planned = planNotifications(r.importantDate, parseOffsets(r.notifyOffsets), today);
+  const planned = planNotifications(
+    r.importantDate,
+    parseOffsets(r.notifyOffsets),
+    today,
+  );
   if (planned.length === 0) return;
-  conn
-    .insert(schema.reminderNotifications)
-    .values(
-      planned.map((p) => ({
-        reminderId: r.id,
-        userId: r.userId,
-        kind: p.kind,
-        offsetDays: p.offsetDays,
-        scheduledFor: p.scheduledFor,
-      })),
-    )
-    .run();
+  await conn.insert(schema.reminderNotifications).values(
+    planned.map((p) => ({
+      reminderId: r.id,
+      userId: r.userId,
+      kind: p.kind,
+      offsetDays: p.offsetDays,
+      scheduledFor: p.scheduledFor,
+    })),
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -437,18 +526,24 @@ function rowValuesFromInput(input: ReminderInput) {
   };
 }
 
-export function createReminder(
+export async function createReminder(
   userId: string,
   input: ReminderInput,
   today: ISODate,
   source: "manual" | "quick_capture" = "manual",
-): string {
+): Promise<string> {
+  if ((await getSpace(userId, input.spaceId)).status !== "active")
+    throw new Error("Choose an active Minder Space.");
   const db = getDb();
-  return db.transaction((tx) => {
-    if (getSpace(userId, input.spaceId).status !== "active") throw new Error("Choose an active Minder Space.");
-    const categoryId = assertCategory(tx, userId, input.categoryId, input.spaceId);
+  return db.transaction(async (tx) => {
+    const categoryId = await assertCategory(
+      tx,
+      userId,
+      input.categoryId,
+      input.spaceId,
+    );
     const id = crypto.randomUUID();
-    const row = tx
+    const row = await tx
       .insert(schema.reminders)
       .values({
         id,
@@ -458,9 +553,9 @@ export function createReminder(
         ...rowValuesFromInput(input),
       })
       .returning()
-      .get();
-    scheduleNotifications(tx, row, today);
-    logHistory(
+      .then(oneRow);
+    await scheduleNotifications(tx, row, today);
+    await logHistory(
       tx,
       row,
       "created",
@@ -470,24 +565,30 @@ export function createReminder(
   });
 }
 
-export function updateReminder(
+export async function updateReminder(
   userId: string,
   id: string,
   input: ReminderInput,
   today: ISODate,
-): void {
+): Promise<void> {
+  if ((await getSpace(userId, input.spaceId)).status !== "active")
+    throw new Error("Choose an active Minder Space.");
   const db = getDb();
-  db.transaction((tx) => {
-    const before = getRow(tx, userId, id);
-    if (getSpace(userId, input.spaceId).status !== "active") throw new Error("Choose an active Minder Space.");
-    const categoryId = assertCategory(tx, userId, input.categoryId, input.spaceId);
+  await db.transaction(async (tx) => {
+    const before = await getRow(tx, userId, id);
+    const categoryId = await assertCategory(
+      tx,
+      userId,
+      input.categoryId,
+      input.spaceId,
+    );
     const values = rowValuesFromInput(input);
-    const after = tx
+    const after = await tx
       .update(schema.reminders)
       .set({ ...values, categoryId, updatedAt: new Date() })
       .where(eq(schema.reminders.id, id))
       .returning()
-      .get();
+      .then(oneRow);
 
     const changes: string[] = [];
     if (before.title !== after.title) changes.push("title");
@@ -497,39 +598,50 @@ export function updateReminder(
       );
     if (before.categoryId !== after.categoryId) changes.push("category");
     if (before.reminderType !== after.reminderType) changes.push("type");
-    if (before.notifyOffsets !== after.notifyOffsets) changes.push("reminder timing");
+    if (before.notifyOffsets !== after.notifyOffsets)
+      changes.push("reminder timing");
     if (
       before.recurrenceUnit !== after.recurrenceUnit ||
       before.recurrenceInterval !== after.recurrenceInterval
     )
       changes.push(`repeat: ${recurrenceLabel(recurrenceOf(after))}`);
-    if (before.associatedWith !== after.associatedWith) changes.push("who/what");
+    if (before.associatedWith !== after.associatedWith)
+      changes.push("who/what");
     if (before.description !== after.description) changes.push("notes");
-    if (before.priority !== after.priority) changes.push(`priority ${after.priority}`);
+    if (before.priority !== after.priority)
+      changes.push(`priority ${after.priority}`);
 
     if (
       before.importantDate !== after.importantDate ||
       before.notifyOffsets !== after.notifyOffsets
     ) {
-      scheduleNotifications(tx, after, today);
+      await scheduleNotifications(tx, after, today);
     }
-    if (changes.length) logHistory(tx, after, "updated", `Changed ${changes.join(", ")}`);
+    if (changes.length)
+      await logHistory(tx, after, "updated", `Changed ${changes.join(", ")}`);
   });
 }
 
-export function snoozeReminder(userId: string, id: string, until: ISODate, today: ISODate): void {
+export async function snoozeReminder(
+  userId: string,
+  id: string,
+  until: ISODate,
+  today: ISODate,
+): Promise<void> {
   if (until <= today) throw new Error("Snooze until a future date.");
   const db = getDb();
-  db.transaction((tx) => {
-    const r = getRow(tx, userId, id);
-    if (r.status !== "active") throw new Error("Only active reminders can be snoozed.");
+  await db.transaction(async (tx) => {
+    const r = await getRow(tx, userId, id);
+    if (r.status !== "active")
+      throw new Error("Only active reminders can be snoozed.");
     // The important date never moves — only notifications are held back.
-    tx.update(schema.reminders)
+    await tx
+      .update(schema.reminders)
       .set({ snoozedUntil: until, updatedAt: new Date() })
-      .where(eq(schema.reminders.id, id))
-      .run();
+      .where(eq(schema.reminders.id, id));
     // Anything already due right now is quietened.
-    tx.update(schema.reminderNotifications)
+    await tx
+      .update(schema.reminderNotifications)
       .set({ status: "skipped" })
       .where(
         and(
@@ -537,54 +649,62 @@ export function snoozeReminder(userId: string, id: string, until: ISODate, today
           eq(schema.reminderNotifications.status, "pending"),
           ne(schema.reminderNotifications.kind, "snooze"),
         ),
-      )
-      .run();
+      );
     // ...and future ones that fall inside the snooze window are skipped later.
-    tx.delete(schema.reminderNotifications)
+    await tx
+      .delete(schema.reminderNotifications)
       .where(
         and(
           eq(schema.reminderNotifications.reminderId, id),
           eq(schema.reminderNotifications.kind, "snooze"),
           eq(schema.reminderNotifications.status, "pending"),
         ),
-      )
-      .run();
-    tx.insert(schema.reminderNotifications)
-      .values({ reminderId: id, userId, kind: "snooze", scheduledFor: until })
-      .run();
+      );
+    await tx
+      .insert(schema.reminderNotifications)
+      .values({ reminderId: id, userId, kind: "snooze", scheduledFor: until });
     // Restore future advance notifications after the snooze window.
-    const planned = planNotifications(r.importantDate, parseOffsets(r.notifyOffsets), today).filter(
-      (p) => p.scheduledFor > until,
-    );
+    const planned = planNotifications(
+      r.importantDate,
+      parseOffsets(r.notifyOffsets),
+      today,
+    ).filter((p) => p.scheduledFor > until);
     if (planned.length) {
-      tx.insert(schema.reminderNotifications)
-        .values(
-          planned.map((p) => ({
-            reminderId: id,
-            userId,
-            kind: p.kind,
-            offsetDays: p.offsetDays,
-            scheduledFor: p.scheduledFor,
-          })),
-        )
-        .run();
+      await tx.insert(schema.reminderNotifications).values(
+        planned.map((p) => ({
+          reminderId: id,
+          userId,
+          kind: p.kind,
+          offsetDays: p.offsetDays,
+          scheduledFor: p.scheduledFor,
+        })),
+      );
     }
-    logHistory(tx, r, "snoozed", `Notifications paused until ${formatLong(until)}`);
+    await logHistory(
+      tx,
+      r,
+      "snoozed",
+      `Notifications paused until ${formatLong(until)}`,
+    );
   });
 }
 
-export function unsnoozeReminder(userId: string, id: string, today: ISODate): void {
+export async function unsnoozeReminder(
+  userId: string,
+  id: string,
+  today: ISODate,
+): Promise<void> {
   const db = getDb();
-  db.transaction((tx) => {
-    const r = getRow(tx, userId, id);
-    const updated = tx
+  await db.transaction(async (tx) => {
+    const r = await getRow(tx, userId, id);
+    const updated = await tx
       .update(schema.reminders)
       .set({ snoozedUntil: null, updatedAt: new Date() })
       .where(eq(schema.reminders.id, id))
       .returning()
-      .get();
-    scheduleNotifications(tx, updated, today);
-    logHistory(tx, r, "unsnoozed", "Snooze cancelled");
+      .then(oneRow);
+    await scheduleNotifications(tx, updated, today);
+    await logHistory(tx, r, "unsnoozed", "Snooze cancelled");
   });
 }
 
@@ -602,35 +722,50 @@ function nextOccurrence(date: ISODate, rec: Recurrence): ISODate {
 }
 
 /** Suggested next date when renewing (recurrence interval, else +1 year). */
-export function suggestedRenewalDate(r: Pick<ReminderView, "importantDate" | "recurrence">): ISODate {
-  return nextOccurrence(r.importantDate, r.recurrence ?? { unit: "year", interval: 1 });
+export function suggestedRenewalDate(
+  r: Pick<ReminderView, "importantDate" | "recurrence">,
+): ISODate {
+  return nextOccurrence(
+    r.importantDate,
+    r.recurrence ?? { unit: "year", interval: 1 },
+  );
 }
 
 /**
  * Open the next period of a series: the old reminder is closed (renewed or
  * resolved) and preserved; a new reminder carries the details forward.
  */
-function openNextPeriod(
+async function openNextPeriod(
   tx: Tx,
   old: ReminderRow,
   newDate: ISODate,
   kind: "renewal" | "recurrence",
   note: string | null,
   today: ISODate,
-): string {
+): Promise<string> {
   const now = new Date();
-  tx.update(schema.reminders)
+  await tx
+    .update(schema.reminders)
     .set(
       kind === "renewal"
-        ? { status: "renewed", renewedAt: now, snoozedUntil: null, updatedAt: now }
-        : { status: "resolved", resolvedAt: now, snoozedUntil: null, updatedAt: now },
+        ? {
+            status: "renewed",
+            renewedAt: now,
+            snoozedUntil: null,
+            updatedAt: now,
+          }
+        : {
+            status: "resolved",
+            resolvedAt: now,
+            snoozedUntil: null,
+            updatedAt: now,
+          },
     )
-    .where(eq(schema.reminders.id, old.id))
-    .run();
-  cancelPending(tx, old.id);
+    .where(eq(schema.reminders.id, old.id));
+  await cancelPending(tx, old.id);
 
   const newId = crypto.randomUUID();
-  const next = tx
+  const next = await tx
     .insert(schema.reminders)
     .values({
       id: newId,
@@ -651,63 +786,77 @@ function openNextPeriod(
       notifyOffsets: old.notifyOffsets,
     })
     .returning()
-    .get();
-  scheduleNotifications(tx, next, today);
+    .then(oneRow);
+  await scheduleNotifications(tx, next, today);
 
-  tx.insert(schema.renewals)
-    .values({
-      userId: old.userId,
-      seriesId: old.seriesId,
-      fromReminderId: old.id,
-      toReminderId: newId,
-      kind,
-      previousDate: old.importantDate,
-      newDate,
-      note,
-    })
-    .run();
+  await tx.insert(schema.renewals).values({
+    userId: old.userId,
+    seriesId: old.seriesId,
+    fromReminderId: old.id,
+    toReminderId: newId,
+    kind,
+    previousDate: old.importantDate,
+    newDate,
+    note,
+  });
 
   if (kind === "renewal") {
-    logHistory(
+    await logHistory(
       tx,
       old,
       "renewed",
       `Renewed: ${formatLong(old.importantDate)} → ${formatLong(newDate)}${note ? ` · ${note}` : ""}`,
     );
-    logHistory(tx, next, "created", `New period starting after renewal, due ${formatLong(newDate)}`);
+    await logHistory(
+      tx,
+      next,
+      "created",
+      `New period starting after renewal, due ${formatLong(newDate)}`,
+    );
   } else {
-    logHistory(tx, old, "resolved", `Done for ${formatLong(old.importantDate)}`);
-    logHistory(tx, next, "created", `Next occurrence scheduled for ${formatLong(newDate)}`);
+    await logHistory(
+      tx,
+      old,
+      "resolved",
+      `Done for ${formatLong(old.importantDate)}`,
+    );
+    await logHistory(
+      tx,
+      next,
+      "created",
+      `Next occurrence scheduled for ${formatLong(newDate)}`,
+    );
   }
   return newId;
 }
 
-export function renewReminder(
+export async function renewReminder(
   userId: string,
   id: string,
   newDate: ISODate,
   note: string | null,
   today: ISODate,
-): string {
+): Promise<string> {
   const db = getDb();
-  return db.transaction((tx) => {
-    const old = getRow(tx, userId, id);
-    if (old.status !== "active") throw new Error("Only active reminders can be renewed.");
+  return db.transaction(async (tx) => {
+    const old = await getRow(tx, userId, id);
+    if (old.status !== "active")
+      throw new Error("Only active reminders can be renewed.");
     if (newDate <= old.importantDate)
       throw new Error("The new date must be after the current date.");
-    return openNextPeriod(tx, old, newDate, "renewal", note, today);
+    return await openNextPeriod(tx, old, newDate, "renewal", note, today);
   });
 }
 
 /** Mark resolved. Recurring reminders roll forward to the next occurrence. */
-export function resolveReminder(
+export async function resolveReminder(
   userId: string,
   id: string,
   today: ISODate,
-): { nextId: string | null } {
+): Promise<{ nextId: string | null }> {
   const db = getDb();
-  return db.transaction((tx) => {
-    const r = getRow(tx, userId, id);
+  return db.transaction(async (tx) => {
+    const r = await getRow(tx, userId, id);
     if (r.status !== "active") throw new Error("This reminder is not active.");
     const rec = recurrenceOf(r);
     if (rec) {
@@ -715,42 +864,58 @@ export function resolveReminder(
       // Skip occurrences already in the past if it was resolved very late.
       let guard = 0;
       while (next < today && guard++ < 500) next = nextOccurrence(next, rec);
-      return { nextId: openNextPeriod(tx, r, next, "recurrence", null, today) };
+      return {
+        nextId: await openNextPeriod(tx, r, next, "recurrence", null, today),
+      };
     }
     const now = new Date();
-    tx.update(schema.reminders)
-      .set({ status: "resolved", resolvedAt: now, snoozedUntil: null, updatedAt: now })
-      .where(eq(schema.reminders.id, id))
-      .run();
-    cancelPending(tx, id);
-    logHistory(tx, r, "resolved", "Marked as resolved");
+    await tx
+      .update(schema.reminders)
+      .set({
+        status: "resolved",
+        resolvedAt: now,
+        snoozedUntil: null,
+        updatedAt: now,
+      })
+      .where(eq(schema.reminders.id, id));
+    await cancelPending(tx, id);
+    await logHistory(tx, r, "resolved", "Marked as resolved");
     return { nextId: null };
   });
 }
 
-export function reopenReminder(userId: string, id: string, today: ISODate): void {
+export async function reopenReminder(
+  userId: string,
+  id: string,
+  today: ISODate,
+): Promise<void> {
   const db = getDb();
-  db.transaction((tx) => {
-    const r = getRow(tx, userId, id);
-    if (r.status !== "resolved") throw new Error("Only resolved reminders can be reopened.");
-    const updated = tx
+  await db.transaction(async (tx) => {
+    const r = await getRow(tx, userId, id);
+    if (r.status !== "resolved")
+      throw new Error("Only resolved reminders can be reopened.");
+    const updated = await tx
       .update(schema.reminders)
       .set({ status: "active", resolvedAt: null, updatedAt: new Date() })
       .where(eq(schema.reminders.id, id))
       .returning()
-      .get();
-    scheduleNotifications(tx, updated, today);
-    logHistory(tx, r, "reopened", "Reopened");
+      .then(oneRow);
+    await scheduleNotifications(tx, updated, today);
+    await logHistory(tx, r, "reopened", "Reopened");
   });
 }
 
-export function archiveReminder(userId: string, id: string): void {
+export async function archiveReminder(
+  userId: string,
+  id: string,
+): Promise<void> {
   const db = getDb();
-  db.transaction((tx) => {
-    const r = getRow(tx, userId, id);
+  await db.transaction(async (tx) => {
+    const r = await getRow(tx, userId, id);
     if (r.status === "archived") return;
     const now = new Date();
-    tx.update(schema.reminders)
+    await tx
+      .update(schema.reminders)
       .set({
         status: "archived",
         statusBeforeArchive: r.status,
@@ -758,20 +923,23 @@ export function archiveReminder(userId: string, id: string): void {
         snoozedUntil: null,
         updatedAt: now,
       })
-      .where(eq(schema.reminders.id, id))
-      .run();
-    cancelPending(tx, id);
-    logHistory(tx, r, "archived", "Moved to archive");
+      .where(eq(schema.reminders.id, id));
+    await cancelPending(tx, id);
+    await logHistory(tx, r, "archived", "Moved to archive");
   });
 }
 
-export function unarchiveReminder(userId: string, id: string, today: ISODate): void {
+export async function unarchiveReminder(
+  userId: string,
+  id: string,
+  today: ISODate,
+): Promise<void> {
   const db = getDb();
-  db.transaction((tx) => {
-    const r = getRow(tx, userId, id);
+  await db.transaction(async (tx) => {
+    const r = await getRow(tx, userId, id);
     if (r.status !== "archived") return;
     const restored = (r.statusBeforeArchive as Lifecycle | null) ?? "active";
-    const updated = tx
+    const updated = await tx
       .update(schema.reminders)
       .set({
         status: restored === "archived" ? "active" : restored,
@@ -781,43 +949,50 @@ export function unarchiveReminder(userId: string, id: string, today: ISODate): v
       })
       .where(eq(schema.reminders.id, id))
       .returning()
-      .get();
-    scheduleNotifications(tx, updated, today);
-    logHistory(tx, r, "restored", "Restored from archive");
+      .then(oneRow);
+    await scheduleNotifications(tx, updated, today);
+    await logHistory(tx, r, "restored", "Restored from archive");
   });
 }
 
-export async function deleteReminder(userId: string, id: string): Promise<void> {
+export async function deleteReminder(
+  userId: string,
+  id: string,
+): Promise<void> {
   const db = getDb();
-  const r = getRow(db, userId, id);
-  const files = db
+  const r = await getRow(db, userId, id);
+  const files = await db
     .select({ key: schema.attachments.storageKey })
     .from(schema.attachments)
-    .where(eq(schema.attachments.reminderId, id))
-    .all();
-  db.transaction((tx) => {
+    .where(eq(schema.attachments.reminderId, id));
+  await db.transaction(async (tx) => {
     // Keep the rest of the series intact: re-point renewals' links by deleting
     // only the rows that reference this period.
-    tx.delete(schema.renewals)
+    await tx
+      .delete(schema.renewals)
       .where(
         and(
           eq(schema.renewals.userId, userId),
           inArray(schema.renewals.fromReminderId, [r.id]),
         ),
-      )
-      .run();
-    tx.delete(schema.renewals)
+      );
+    await tx
+      .delete(schema.renewals)
       .where(
-        and(eq(schema.renewals.userId, userId), inArray(schema.renewals.toReminderId, [r.id])),
-      )
-      .run();
-    tx.update(schema.reminders)
+        and(
+          eq(schema.renewals.userId, userId),
+          inArray(schema.renewals.toReminderId, [r.id]),
+        ),
+      );
+    await tx
+      .update(schema.reminders)
       .set({ previousReminderId: r.previousReminderId })
-      .where(eq(schema.reminders.previousReminderId, r.id))
-      .run();
-    tx.delete(schema.reminders).where(eq(schema.reminders.id, r.id)).run();
+      .where(eq(schema.reminders.previousReminderId, r.id));
+    await tx.delete(schema.reminders).where(eq(schema.reminders.id, r.id));
   });
-  await Promise.all(files.map((f) => storage.remove(f.key).catch(() => undefined)));
+  await Promise.all(
+    files.map((f) => storage.remove(f.key).catch(() => undefined)),
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -830,24 +1005,22 @@ export async function addAttachment(
   file: { name: string; type: string; data: Buffer },
 ): Promise<string> {
   const db = getDb();
-  const r = getRow(db, userId, reminderId);
+  const r = await getRow(db, userId, reminderId);
   const id = crypto.randomUUID();
   const key = `${userId}/${reminderId}/${id}`;
-  await storage.save(key, file.data);
+  await storage.save(key, file.data, userId);
   try {
-    db.transaction((tx) => {
-      tx.insert(schema.attachments)
-        .values({
-          id,
-          reminderId,
-          userId,
-          fileName: file.name.slice(0, 200),
-          mimeType: file.type,
-          sizeBytes: file.data.length,
-          storageKey: key,
-        })
-        .run();
-      logHistory(tx, r, "attachment_added", file.name.slice(0, 200));
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.attachments).values({
+        id,
+        reminderId,
+        userId,
+        fileName: file.name.slice(0, 200),
+        mimeType: file.type,
+        sizeBytes: file.data.length,
+        storageKey: key,
+      });
+      await logHistory(tx, r, "attachment_added", file.name.slice(0, 200));
     });
   } catch (e) {
     await storage.remove(key).catch(() => undefined);
@@ -856,22 +1029,30 @@ export async function addAttachment(
   return id;
 }
 
-export function getAttachment(userId: string, attachmentId: string) {
-  return getDb()
+export async function getAttachment(userId: string, attachmentId: string) {
+  return await getDb()
     .select()
     .from(schema.attachments)
-    .where(and(eq(schema.attachments.id, attachmentId), eq(schema.attachments.userId, userId)))
-    .get();
+    .where(
+      and(
+        eq(schema.attachments.id, attachmentId),
+        eq(schema.attachments.userId, userId),
+      ),
+    )
+    .then(firstRow);
 }
 
-export async function deleteAttachment(userId: string, attachmentId: string): Promise<string> {
+export async function deleteAttachment(
+  userId: string,
+  attachmentId: string,
+): Promise<string> {
   const db = getDb();
-  const a = getAttachment(userId, attachmentId);
+  const a = await getAttachment(userId, attachmentId);
   if (!a) throw new NotFoundError("Attachment not found");
-  const r = getRow(db, userId, a.reminderId);
-  db.transaction((tx) => {
-    tx.delete(schema.attachments).where(eq(schema.attachments.id, a.id)).run();
-    logHistory(tx, r, "attachment_removed", a.fileName);
+  const r = await getRow(db, userId, a.reminderId);
+  await db.transaction(async (tx) => {
+    await tx.delete(schema.attachments).where(eq(schema.attachments.id, a.id));
+    await logHistory(tx, r, "attachment_removed", a.fileName);
   });
   await storage.remove(a.storageKey).catch(() => undefined);
   return a.reminderId;

@@ -1,41 +1,40 @@
 import "server-only";
-import fs from "node:fs/promises";
-import path from "node:path";
-import { DATA_DIR } from "./db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "./db";
 
 /**
- * Attachment storage. Files live on local disk today; swap in an S3-style
- * implementation of `FileStorage` without touching callers.
+ * Attachment storage. Bytes are kept in Postgres (`attachment_blobs`) so the
+ * app runs on serverless hosts with no persistent disk. Swap in an
+ * object-storage implementation of `FileStorage` without touching callers.
  */
 export interface FileStorage {
-  save(key: string, data: Buffer): Promise<void>;
+  save(key: string, data: Buffer, userId: string): Promise<void>;
   read(key: string): Promise<Buffer>;
   remove(key: string): Promise<void>;
 }
 
-const UPLOAD_ROOT = path.join(/*turbopackIgnore: true*/ DATA_DIR, "uploads");
-
-function resolveKey(key: string): string {
-  const full = path.resolve(/*turbopackIgnore: true*/ UPLOAD_ROOT, key);
-  if (!full.startsWith(UPLOAD_ROOT + path.sep)) throw new Error("Invalid storage key");
-  return full;
-}
-
-export const localStorage: FileStorage = {
-  async save(key, data) {
-    const full = resolveKey(key);
-    await fs.mkdir(path.dirname(full), { recursive: true });
-    await fs.writeFile(full, data);
+export const databaseStorage: FileStorage = {
+  async save(key, data, userId) {
+    await getDb()
+      .insert(schema.attachmentBlobs)
+      .values({ storageKey: key, userId, data });
   },
   async read(key) {
-    return fs.readFile(resolveKey(key));
+    const [row] = await getDb()
+      .select({ data: schema.attachmentBlobs.data })
+      .from(schema.attachmentBlobs)
+      .where(eq(schema.attachmentBlobs.storageKey, key));
+    if (!row) throw new Error("Attachment not found");
+    return Buffer.from(row.data);
   },
   async remove(key) {
-    await fs.rm(resolveKey(key), { force: true });
+    await getDb()
+      .delete(schema.attachmentBlobs)
+      .where(eq(schema.attachmentBlobs.storageKey, key));
   },
 };
 
-export const storage: FileStorage = localStorage;
+export const storage: FileStorage = databaseStorage;
 
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
@@ -48,7 +47,8 @@ export const ALLOWED_ATTACHMENT_TYPES: Record<string, string> = {
   "image/gif": "gif",
   "text/plain": "txt",
   "application/msword": "doc",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+    "docx",
   "application/vnd.ms-excel": "xls",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
 };

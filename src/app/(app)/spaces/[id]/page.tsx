@@ -17,11 +17,11 @@ export default async function SpacePage({
   const user = await requireUser();
   let space;
   try {
-    space = getSpace(user.id, id);
+    space = await getSpace(user.id, id);
   } catch {
     notFound();
   }
-  const all = listReminders(user.id, todayISO(user.timezone), {
+  const all = await listReminders(user.id, todayISO(user.timezone), {
     spaceId: id,
     includeArchivedSpaces: true,
   });

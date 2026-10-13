@@ -1,4 +1,5 @@
 import "server-only";
+import { firstRow } from "@/lib/db/first";
 import crypto from "node:crypto";
 import { promisify } from "node:util";
 import { cache } from "react";
@@ -26,12 +27,22 @@ export async function hashPassword(password: string): Promise<string> {
   return `scrypt$${salt.toString("base64")}$${key.toString("base64")}`;
 }
 
-export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+export async function verifyPassword(
+  password: string,
+  stored: string,
+): Promise<boolean> {
   const [algo, saltB64, keyB64] = stored.split("$");
   if (algo !== "scrypt" || !saltB64 || !keyB64) return false;
   const expected = Buffer.from(keyB64, "base64");
-  const actual = await scrypt(password.normalize("NFKC"), Buffer.from(saltB64, "base64"), 64);
-  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+  const actual = await scrypt(
+    password.normalize("NFKC"),
+    Buffer.from(saltB64, "base64"),
+    64,
+  );
+  return (
+    expected.length === actual.length &&
+    crypto.timingSafeEqual(expected, actual)
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -46,11 +57,18 @@ export async function createSession(userId: string): Promise<void> {
   const db = getDb();
   const token = crypto.randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-  db.insert(schema.sessions).values({ id: hashToken(token), userId, expiresAt }).run();
+  await db
+    .insert(schema.sessions)
+    .values({ id: hashToken(token), userId, expiresAt });
   // Opportunistic cleanup of this user's expired sessions.
-  db.delete(schema.sessions)
-    .where(and(eq(schema.sessions.userId, userId), lt(schema.sessions.expiresAt, new Date())))
-    .run();
+  await db
+    .delete(schema.sessions)
+    .where(
+      and(
+        eq(schema.sessions.userId, userId),
+        lt(schema.sessions.expiresAt, new Date()),
+      ),
+    );
 
   const jar = await cookies();
   jar.set(SESSION_COOKIE, token, {
@@ -69,7 +87,9 @@ export async function destroySession(): Promise<void> {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
   if (token) {
-    getDb().delete(schema.sessions).where(eq(schema.sessions.id, hashToken(token))).run();
+    await getDb()
+      .delete(schema.sessions)
+      .where(eq(schema.sessions.id, hashToken(token)));
   }
   jar.delete(SESSION_COOKIE);
 }
@@ -86,7 +106,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
   if (!token) return null;
-  const row = getDb()
+  const row = await getDb()
     .select({
       id: schema.users.id,
       email: schema.users.email,
@@ -95,8 +115,13 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     })
     .from(schema.sessions)
     .innerJoin(schema.users, eq(schema.users.id, schema.sessions.userId))
-    .where(and(eq(schema.sessions.id, hashToken(token)), gt(schema.sessions.expiresAt, new Date())))
-    .get();
+    .where(
+      and(
+        eq(schema.sessions.id, hashToken(token)),
+        gt(schema.sessions.expiresAt, new Date()),
+      ),
+    )
+    .then(firstRow);
   return row ?? null;
 });
 

@@ -3,17 +3,26 @@ import { Suspense } from "react";
 import { requireUser } from "@/lib/auth";
 import { todayISO } from "@/lib/dates";
 import { AppContextProvider } from "@/components/shell/AppContext";
-import { MobileHeader, MobileNav, Sidebar, TopBar } from "@/components/shell/Navigation";
+import {
+  MobileHeader,
+  MobileNav,
+  Sidebar,
+  TopBar,
+} from "@/components/shell/Navigation";
 import { NotificationProvider } from "@/components/shell/Notifications";
 import { QuickCaptureProvider } from "@/components/shell/QuickCapture";
 import { ToastProvider } from "@/components/ui/Toast";
 import { unreadCount } from "@/server/notifications";
 import { getSettings, listCategories } from "@/server/reminders";
 
-export default async function AppLayout({ children }: { children: React.ReactNode }) {
+export default async function AppLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const user = await requireUser();
-  const settings = getSettings(user.id);
-  const categories = listCategories(user.id);
+  const settings = await getSettings(user.id);
+  const categories = await listCategories(user.id);
 
   return (
     <AppContextProvider
@@ -23,13 +32,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         timezone: user.timezone,
         dayFirst: settings.dayFirst,
         categories,
-        spaces: listSpaces(user.id),
+        spaces: await listSpaces(user.id),
         defaultOffsets: settings.defaultOffsets,
         browserNotifications: settings.browserEnabled,
       }}
     >
       <ToastProvider>
-        <NotificationProvider initialUnread={unreadCount(user.id)}>
+        <NotificationProvider initialUnread={await unreadCount(user.id)}>
           <QuickCaptureProvider>
             <div className="flex min-h-dvh">
               <Sidebar />

@@ -1,4 +1,5 @@
 "use server";
+import { firstRow } from "@/lib/db/first";
 import { getSpace } from "@/server/spaces";
 
 import { and, eq } from "drizzle-orm";
@@ -6,7 +7,11 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { hashPassword, requireUser, verifyPassword } from "@/lib/auth";
 import { getDb, schema } from "@/lib/db";
-import { CATEGORY_COLORS, MAX_OFFSET_DAYS, normalizeOffsets } from "@/lib/domain";
+import {
+  CATEGORY_COLORS,
+  MAX_OFFSET_DAYS,
+  normalizeOffsets,
+} from "@/lib/domain";
 import type { ActionResult } from "@/lib/types";
 import { fieldErrors } from "@/lib/validation";
 import { markRead } from "@/server/notifications";
@@ -37,11 +42,10 @@ export async function updateProfileAction(raw: unknown): Promise<ActionResult> {
     const errors = fieldErrors(parsed.error);
     return { ok: false, error: Object.values(errors)[0], fieldErrors: errors };
   }
-  getDb()
+  await getDb()
     .update(schema.users)
     .set({ ...parsed.data, updatedAt: new Date() })
-    .where(eq(schema.users.id, user.id))
-    .run();
+    .where(eq(schema.users.id, user.id));
   refreshAll();
   return { ok: true, message: "Profile saved." };
 }
@@ -54,20 +58,22 @@ const preferencesSchema = z.object({
   defaultOffsets: z.array(z.number().int().min(0).max(MAX_OFFSET_DAYS)).max(20),
 });
 
-export async function updatePreferencesAction(raw: unknown): Promise<ActionResult> {
+export async function updatePreferencesAction(
+  raw: unknown,
+): Promise<ActionResult> {
   const user = await requireUser();
   const parsed = preferencesSchema.safeParse(raw);
-  if (!parsed.success) return { ok: false, error: "Those settings don't look right." };
+  if (!parsed.success)
+    return { ok: false, error: "Those settings don't look right." };
   const { defaultOffsets, ...rest } = parsed.data;
-  getDb()
+  await getDb()
     .update(schema.userSettings)
     .set({
       ...rest,
       defaultOffsets: JSON.stringify(normalizeOffsets(defaultOffsets)),
       updatedAt: new Date(),
     })
-    .where(eq(schema.userSettings.userId, user.id))
-    .run();
+    .where(eq(schema.userSettings.userId, user.id));
   refreshAll();
   return { ok: true, message: "Preferences saved." };
 }
@@ -77,7 +83,9 @@ const passwordSchema = z.object({
   next: z.string().min(8, "Use at least 8 characters.").max(200),
 });
 
-export async function changePasswordAction(raw: unknown): Promise<ActionResult> {
+export async function changePasswordAction(
+  raw: unknown,
+): Promise<ActionResult> {
   const user = await requireUser();
   const parsed = passwordSchema.safeParse(raw);
   if (!parsed.success) {
@@ -85,7 +93,11 @@ export async function changePasswordAction(raw: unknown): Promise<ActionResult> 
     return { ok: false, error: Object.values(errors)[0], fieldErrors: errors };
   }
   const db = getDb();
-  const row = db.select().from(schema.users).where(eq(schema.users.id, user.id)).get();
+  const row = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.id, user.id))
+    .then(firstRow);
   if (!row || !(await verifyPassword(parsed.data.current, row.passwordHash))) {
     return {
       ok: false,
@@ -93,15 +105,22 @@ export async function changePasswordAction(raw: unknown): Promise<ActionResult> 
       fieldErrors: { current: "Incorrect password." },
     };
   }
-  db.update(schema.users)
-    .set({ passwordHash: await hashPassword(parsed.data.next), updatedAt: new Date() })
-    .where(eq(schema.users.id, user.id))
-    .run();
+  await db
+    .update(schema.users)
+    .set({
+      passwordHash: await hashPassword(parsed.data.next),
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.users.id, user.id));
   return { ok: true, message: "Password updated." };
 }
 
 const categorySchema = z.object({
-  name: z.string().trim().min(1, "Name your category.").max(40, "Keep it short."),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name your category.")
+    .max(40, "Keep it short."),
 });
 
 function slugify(name: string): string {
@@ -114,33 +133,51 @@ function slugify(name: string): string {
   );
 }
 
-export async function addCategoryAction(name: string, spaceId: string): Promise<ActionResult> {
+export async function addCategoryAction(
+  name: string,
+  spaceId: string,
+): Promise<ActionResult> {
   const user = await requireUser();
-  try { if(getSpace(user.id,spaceId).status!=="active")throw new Error(); }catch{return {ok:false,error:"Choose an active Minder Space."};}
+  try {
+    if ((await getSpace(user.id, spaceId)).status !== "active")
+      throw new Error();
+  } catch {
+    return { ok: false, error: "Choose an active Minder Space." };
+  }
   const parsed = categorySchema.safeParse({ name });
-  if (!parsed.success) return { ok: false, error: fieldErrors(parsed.error).name };
+  if (!parsed.success)
+    return { ok: false, error: fieldErrors(parsed.error).name };
   const db = getDb();
-  const existing = db
+  const existing = await db
     .select()
     .from(schema.categories)
-    .where(and(eq(schema.categories.userId,user.id),eq(schema.categories.spaceId,spaceId)))
-    .all();
+    .where(
+      and(
+        eq(schema.categories.userId, user.id),
+        eq(schema.categories.spaceId, spaceId),
+      ),
+    );
   const slug = slugify(parsed.data.name);
-  if (existing.some((c) => c.slug === slug || c.name.toLowerCase() === parsed.data.name.toLowerCase()))
+  if (
+    existing.some(
+      (c) =>
+        c.slug === slug ||
+        c.name.toLowerCase() === parsed.data.name.toLowerCase(),
+    )
+  )
     return { ok: false, error: "You already have a category with that name." };
-  if (existing.length >= 50) return { ok: false, error: "That's the maximum number of categories." };
-  db.insert(schema.categories)
-    .values({
-      userId: user.id,
-      spaceId,
-      name: parsed.data.name,
-      slug,
-      color: CATEGORY_COLORS[existing.length % CATEGORY_COLORS.length],
-      icon: "tag",
-      isDefault: false,
-      sortOrder: 100 + existing.length,
-    })
-    .run();
+  if (existing.length >= 50)
+    return { ok: false, error: "That's the maximum number of categories." };
+  await db.insert(schema.categories).values({
+    userId: user.id,
+    spaceId,
+    name: parsed.data.name,
+    slug,
+    color: CATEGORY_COLORS[existing.length % CATEGORY_COLORS.length],
+    icon: "tag",
+    isDefault: false,
+    sortOrder: 100 + existing.length,
+  });
   refreshAll();
   return { ok: true, message: "Category added." };
 }
@@ -148,33 +185,52 @@ export async function addCategoryAction(name: string, spaceId: string): Promise<
 export async function deleteCategoryAction(id: string): Promise<ActionResult> {
   const user = await requireUser();
   const db = getDb();
-  const cat = db
+  const cat = await db
     .select()
     .from(schema.categories)
-    .where(and(eq(schema.categories.id, id), eq(schema.categories.userId, user.id)))
-    .get();
+    .where(
+      and(eq(schema.categories.id, id), eq(schema.categories.userId, user.id)),
+    )
+    .then(firstRow);
   if (!cat) return { ok: false, error: "Category not found." };
-  if (cat.isDefault) return { ok: false, error: "Default categories can't be removed." };
-  const custom = db
+  if (cat.isDefault)
+    return { ok: false, error: "Default categories can't be removed." };
+  const custom = await db
     .select()
     .from(schema.categories)
-    .where(and(eq(schema.categories.userId, user.id), eq(schema.categories.slug, "custom"),eq(schema.categories.spaceId,cat.spaceId)))
-    .get();
-  db.transaction((tx) => {
+    .where(
+      and(
+        eq(schema.categories.userId, user.id),
+        eq(schema.categories.slug, "custom"),
+        eq(schema.categories.spaceId, cat.spaceId),
+      ),
+    )
+    .then(firstRow);
+  await db.transaction(async (tx) => {
     // Reminders in this category move to "Custom" rather than losing a category.
-    tx.update(schema.reminders)
+    await tx
+      .update(schema.reminders)
       .set({ categoryId: custom?.id ?? null })
-      .where(and(eq(schema.reminders.userId, user.id), eq(schema.reminders.categoryId, id)))
-      .run();
-    tx.delete(schema.categories).where(eq(schema.categories.id, id)).run();
+      .where(
+        and(
+          eq(schema.reminders.userId, user.id),
+          eq(schema.reminders.categoryId, id),
+        ),
+      );
+    await tx.delete(schema.categories).where(eq(schema.categories.id, id));
   });
   refreshAll();
   return { ok: true, message: "Category removed." };
 }
 
-export async function markNotificationsReadAction(ids: string[] | "all"): Promise<ActionResult> {
+export async function markNotificationsReadAction(
+  ids: string[] | "all",
+): Promise<ActionResult> {
   const user = await requireUser();
-  markRead(user.id, ids === "all" ? "all" : ids.filter((i) => typeof i === "string"));
+  await markRead(
+    user.id,
+    ids === "all" ? "all" : ids.filter((i) => typeof i === "string"),
+  );
   refreshAll();
   return { ok: true };
 }

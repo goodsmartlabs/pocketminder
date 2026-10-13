@@ -25,9 +25,18 @@ export default async function ArchivePage({
   const today = todayISO(user.timezone);
   const raw = await searchParams;
   const parsed = parseRegisterQuery(raw);
-  const view = ARCHIVE_VIEWS.some((v) => v.value === parsed.view) ? parsed.view : "archived";
-  const query = { ...parsed, view, sort: raw.sort ? parsed.sort : ("furthest" as const) };
-  const all = listReminders(user.id, today, {includeArchivedSpaces:true, lifecycles: ["archived", "resolved", "renewed"] });
+  const view = ARCHIVE_VIEWS.some((v) => v.value === parsed.view)
+    ? parsed.view
+    : "archived";
+  const query = {
+    ...parsed,
+    view,
+    sort: raw.sort ? parsed.sort : ("furthest" as const),
+  };
+  const all = await listReminders(user.id, today, {
+    includeArchivedSpaces: true,
+    lifecycles: ["archived", "resolved", "renewed"],
+  });
   const results = applyRegister(all, query);
   const counts: Record<string, number> = {};
   for (const v of ARCHIVE_VIEWS) {
@@ -39,7 +48,9 @@ export default async function ArchivePage({
 
   return (
     <div className="animate-fade-up">
-      <Link href="/spaces?archived=1" className="mb-4 block text-accent">Archived Minder Spaces →</Link>
+      <Link href="/spaces?archived=1" className="mb-4 block text-accent">
+        Archived Minder Spaces →
+      </Link>
       <PageHeader
         title="Archive"
         subtitle="Past periods, resolved dates and anything you've put away. Nothing is lost."
@@ -47,7 +58,7 @@ export default async function ArchivePage({
       <Suspense>
         <RegisterControls
           query={query}
-          categories={listCategories(user.id)}
+          categories={await listCategories(user.id)}
           people={people}
           counts={counts}
           views={ARCHIVE_VIEWS}

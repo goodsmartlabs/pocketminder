@@ -1,14 +1,23 @@
 # docker compose up -d   →  http://localhost:3000
+# Apply drizzle/0000_init.sql to the database once before first start:
+#   docker compose exec -T db psql -U postgres < drizzle/0000_init.sql
 services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - pocketminder-db:/var/lib/postgresql/data
   pocketminder:
     build: .
     restart: unless-stopped
+    depends_on: [db]
     ports:
       - "3000:3000"
     environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-change-me}@db:5432/postgres
       CRON_SECRET: ${CRON_SECRET:-change-me}
       # COOKIE_SECURE: "false"   # only if serving over plain HTTP
-    volumes:
-      - pocketminder-data:/data
 volumes:
-  pocketminder-data:
+  pocketminder-db:

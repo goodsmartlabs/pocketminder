@@ -5,20 +5,41 @@ const nextConfig: NextConfig = {
   // the signed-in user, so we use the request-time rendering model rather than
   // Cache Components prerendering.
   cacheComponents: false,
-  // Self-contained server bundle (.next/standalone) for Docker or any Node host.
-  output: "standalone",
-  serverExternalPackages: ["better-sqlite3"],
+  // Self-contained server bundle (.next/standalone) for Docker/Node hosts.
+  // Vercel builds its own output, so only opt in when STANDALONE=1.
+  ...(process.env.STANDALONE === "1" ? { output: "standalone" as const } : {}),
   // Common guesses for the auth pages lead to the real ones instead of a 404.
   // Browsers ask for /favicon.ico on pages without an icon tag (e.g. JSON).
   async rewrites() {
     return [{ source: "/favicon.ico", destination: "/icon.svg" }];
   },
   async redirects() {
-    const toLogin = ["/signin", "/sign-in", "/log-in", "/auth/login", "/auth/signin", "/account/login"];
-    const toSignup = ["/sign-up", "/register", "/auth/signup", "/auth/register", "/account/signup"];
+    const toLogin = [
+      "/signin",
+      "/sign-in",
+      "/log-in",
+      "/auth/login",
+      "/auth/signin",
+      "/account/login",
+    ];
+    const toSignup = [
+      "/sign-up",
+      "/register",
+      "/auth/signup",
+      "/auth/register",
+      "/account/signup",
+    ];
     return [
-      ...toLogin.map((source) => ({ source, destination: "/login", permanent: false })),
-      ...toSignup.map((source) => ({ source, destination: "/signup", permanent: false })),
+      ...toLogin.map((source) => ({
+        source,
+        destination: "/login",
+        permanent: false,
+      })),
+      ...toSignup.map((source) => ({
+        source,
+        destination: "/signup",
+        permanent: false,
+      })),
     ];
   },
   turbopack: {

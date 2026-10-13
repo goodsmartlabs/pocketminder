@@ -17,11 +17,16 @@ export default async function SearchPage({
 }) {
   const user = await requireUser();
   const q = ((await searchParams).q ?? "").slice(0, 200);
-  const results = q ? searchReminders(user.id, q, todayISO(user.timezone)) : [];
+  const results = q
+    ? await searchReminders(user.id, q, todayISO(user.timezone))
+    : [];
 
   return (
     <div className="animate-fade-up">
-      <PageHeader title="Search" subtitle="Find any date by name, person, item, category or month." />
+      <PageHeader
+        title="Search"
+        subtitle="Find any date by name, person, item, category or month."
+      />
       <Suspense>
         <SearchBox className="lg:hidden" autoFocus={!q} />
       </Suspense>

@@ -5,13 +5,18 @@ import { getDb } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 /** Liveness/readiness probe for hosting platforms: checks the database too. */
-export function GET() {
+export async function GET() {
   try {
-    getDb().run(sql`select 1`);
+    await getDb().execute(sql`select 1`);
     return NextResponse.json({
       status: "ok",
-      // Which commit is live (set automatically by Railway; useful after a deploy).
-      version: (process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.SOURCE_COMMIT ?? "dev").slice(0, 7),
+      // Which commit is live (set automatically by the host; useful after a deploy).
+      version: (
+        process.env.VERCEL_GIT_COMMIT_SHA ??
+        process.env.RAILWAY_GIT_COMMIT_SHA ??
+        process.env.SOURCE_COMMIT ??
+        "dev"
+      ).slice(0, 7),
       auth: "form-post",
     });
   } catch (error) {

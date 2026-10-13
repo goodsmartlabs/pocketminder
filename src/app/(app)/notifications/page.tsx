@@ -8,7 +8,7 @@ export const metadata = { title: "Notifications" };
 export default async function NotificationsPage() {
   const user = await requireUser();
   await processDueNotifications(user.id, user.timezone);
-  const items = listInbox(user.id);
+  const items = await listInbox(user.id);
   return (
     <div className="animate-fade-up mx-auto max-w-2xl">
       <PageHeader

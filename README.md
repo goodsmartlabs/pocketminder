@@ -68,7 +68,7 @@ Space before adding reminders. Categories belong to a Space, never to the accoun
 
 - Next.js 16 (App Router, Server Components and Server Actions), React 19, TypeScript
 - Tailwind CSS v4 with design tokens in `src/app/globals.css`
-- SQLite via better-sqlite3 + Drizzle ORM. Migrations live in `drizzle/` and run on startup.
+- Postgres (Supabase in production) via postgres.js + Drizzle ORM. SQL migrations live in `drizzle/`; see DEPLOY.md.
 - chrono-node for natural-language date parsing, and zod for validation
 - Vitest for unit and service tests
 
@@ -79,8 +79,8 @@ npm install
 npm run dev            # http://localhost:3000
 ```
 
-The database is created automatically at `./data/pocketminder.db`. Copy `.env.example`
-to `.env.local` to change the location.
+Set `DATABASE_URL` in `.env.local` to a Postgres database (a free Supabase project or
+`docker compose up db`) and apply `drizzle/*.sql` to it once. See DEPLOY.md.
 
 ```bash
 npm test               # parser, status, scheduling and service tests

@@ -1,111 +1,51 @@
 # Deploying PocketMinder
 
-PocketMinder is a single Node.js server with a SQLite database. Any host that can run a
-**Docker container with a persistent volume** works: a VPS, Railway, Render, Fly.io and so on.
+PocketMinder is a Next.js app backed by **Postgres**. The production setup is:
 
-> **Persistent storage is required.** The database and attachments live in `/data` inside the
-> container. Mount a volume there, or every redeploy wipes all accounts and reminders.
-> Serverless hosts such as Vercel and Netlify have no persistent disk and are **not** suitable.
-
-## Requirements
-
-| Item | Value |
-| --- | --- |
-| Runtime | Docker (or Node.js 22 when not using Docker) |
-| Port | `3000` (override with `PORT`) |
-| Persistent volume | mounted at `/data` (about 1 GB is plenty) |
-| Health check | `GET /api/health` returns `{"status":"ok"}` (it also checks the database) |
-| HTTPS | Required in production: session cookies are `Secure` |
+- **Vercel**: builds and hosts the app from GitHub (`goodsmartlabs/pocketminder`, branch `main`).
+- **Supabase**: the Postgres database (project `PocketMinder`). Attachments are stored in the
+  database too, so the app needs no disk.
 
 ## Environment variables
 
-| Variable | Required | Default | Purpose |
-| --- | --- | --- | --- |
-| `POCKETMINDER_DATA_DIR` | no | `/data` in Docker | Where the SQLite DB and uploads are stored |
-| `CRON_SECRET` | recommended | none | Protects `GET /api/cron/notifications` |
-| `COOKIE_SECURE` | no | `true` in production | Set to `false` **only** when serving over plain HTTP |
-| `PORT` | no | `3000` | Listening port |
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | yes | Postgres connection string. On Supabase use the **Transaction pooler** URI (port `6543`). |
+| `CRON_SECRET` | recommended | Protects `GET /api/cron/notifications`. Vercel Cron sends it automatically. |
+| `DATABASE_POOL_SIZE` | no | Connections per server instance (default `5`). |
+| `COOKIE_SECURE` | no | Set to `false` **only** when serving over plain HTTP. |
 
-There are no external services, API keys or separate database server to set up. Database
-migrations run automatically on startup.
+## Database setup (once)
 
-## Option A: Docker on a VPS (e.g. `pocketminder.innergency.com`)
+Apply the SQL files in `drizzle/` in order (Supabase SQL editor, `psql`, or the Supabase MCP):
 
-```bash
-git clone https://github.com/goodsmartlabs/pocketminder.git
-cd pocketminder
-git checkout claude/pocketminder-web-app-y4mqmx   # or main once merged
-echo "CRON_SECRET=$(openssl rand -hex 24)" > .env
-docker compose up -d --build
-curl http://localhost:3000/api/health            # {"status":"ok"}
-```
+1. `drizzle/0000_init.sql`: tables, foreign keys and indexes
+2. `drizzle/0001_enable_rls.sql`: turns on Row Level Security with no policies, so Supabase's public
+   Data API (anon key) cannot read anything. The app connects as the database owner and is
+   unaffected.
 
-Then put HTTPS in front of it. For example, with Caddy (automatic Let's Encrypt
-certificates), add this to `/etc/caddy/Caddyfile`:
+After changing `src/lib/db/schema.ts`, run `npm run db:generate` and apply the new file.
 
-```
-pocketminder.innergency.com {
-    reverse_proxy localhost:3000
-}
-```
+## Vercel
 
-Finally, add a DNS **A record** for `pocketminder` pointing to the server's IP address.
+1. Import the GitHub repo in Vercel (framework preset: Next.js; no build settings needed).
+2. Add `DATABASE_URL` and `CRON_SECRET` under **Settings → Environment Variables** (Production),
+   then redeploy.
+3. **Settings → Domains**: add `pocketminder.innergency.com` and create the DNS record Vercel shows
+   (a `CNAME` to `cname.vercel-dns.com` for a subdomain).
+4. Check `https://pocketminder.innergency.com/api/health` → `{"status":"ok", ...}`.
 
-If you use nginx instead, forward the original host so form submissions (Server Actions)
-pass Next.js's origin check:
+`vercel.json` schedules the notification job daily (the Hobby plan allows one run per day).
+In-app and browser notifications also update whenever a user opens the app.
 
-```nginx
-location / {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
-```
+## Docker / any Node host
 
-## Option B: a platform (Railway, Render, Fly.io)
+`Dockerfile` builds a standalone server (`STANDALONE=1`). It needs `DATABASE_URL`.
+`docker compose up -d --build` starts the app with a local Postgres; apply `drizzle/*.sql` to it once.
 
-1. Create a service from this GitHub repo. The platform detects the `Dockerfile`.
-2. Attach a persistent volume mounted at **`/data`**.
-3. Set `CRON_SECRET` to a random value.
-4. Set the health check path to `/api/health`.
-5. Add the custom domain (e.g. `pocketminder.innergency.com`) in the platform dashboard,
-   then create the CNAME record it shows at your DNS provider.
-
-## Option C: plain Node.js (no Docker)
+## Useful commands
 
 ```bash
-npm ci
-npm run build
-cp -r .next/static .next/standalone/.next/static
-cp -r public .next/standalone/public
-cp -r drizzle .next/standalone/drizzle
-cd .next/standalone
-POCKETMINDER_DATA_DIR=/var/lib/pocketminder NODE_ENV=production node server.js
+DATABASE_URL=... npm run accounts   # list accounts (read-only)
+npm test                            # unit + service tests (in-memory Postgres via PGlite)
 ```
-
-Run it under a process manager (systemd or pm2) behind an HTTPS reverse proxy, as in Option A.
-
-## Notifications cron (optional, recommended)
-
-In-app and browser notifications are processed whenever someone has the app open. To
-process every user on a schedule, call this hourly:
-
-```bash
-curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://pocketminder.innergency.com/api/cron/notifications
-```
-
-## Backups
-
-Everything lives in the `/data` volume: `pocketminder.db` (with its `-wal` and `-shm`
-files) and `uploads/`. To take a consistent copy of the database while the app runs:
-
-```bash
-docker compose exec pocketminder node -e "require('better-sqlite3')('/data/pocketminder.db').backup('/data/backup.db')"
-```
-
-## Verifying a deployment
-
-1. `GET /api/health` returns `{"status":"ok"}`.
-2. Open `/signup`, create an account and add a reminder with **Remember Something**.
-3. Redeploy and sign in again. If the reminder is still there, the volume is mounted correctly.

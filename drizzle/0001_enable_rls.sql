@@ -1,0 +1,13 @@
+-- The app connects as the database owner; RLS with no policies blocks the public Data API (anon/authenticated) from these tables.
+ALTER TABLE "attachment_blobs" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "attachments" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "categories" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "notification_deliveries" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "reminder_history" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "reminder_notifications" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "reminders" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "renewals" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "sessions" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "spaces" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "user_settings" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "users" ENABLE ROW LEVEL SECURITY;

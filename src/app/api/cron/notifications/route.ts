@@ -14,11 +14,11 @@ export async function GET(request: Request) {
   if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const users = getDb()
+  const users = await getDb()
     .select({ id: schema.users.id, timezone: schema.users.timezone })
-    .from(schema.users)
-    .all();
+    .from(schema.users);
   let sent = 0;
-  for (const u of users) sent += await processDueNotifications(u.id, u.timezone, { force: true });
+  for (const u of users)
+    sent += await processDueNotifications(u.id, u.timezone, { force: true });
   return NextResponse.json({ users: users.length, sent });
 }

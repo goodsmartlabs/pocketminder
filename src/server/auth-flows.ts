@@ -1,4 +1,5 @@
 import "server-only";
+import { firstRow, oneRow } from "@/lib/db/first";
 import { eq } from "drizzle-orm";
 import { createSession, hashPassword, verifyPassword } from "@/lib/auth";
 import type { AuthErrorCode } from "@/lib/auth-messages";
@@ -29,20 +30,25 @@ export async function signUp(form: FormData): Promise<Result> {
     const field = parsed.error.issues[0]?.path[0];
     return {
       ok: false,
-      code: field === "name" ? "name" : field === "password" ? "password_short" : "email",
+      code:
+        field === "name"
+          ? "name"
+          : field === "password"
+            ? "password_short"
+            : "email",
     };
   }
   const db = getDb();
-  const existing = db
+  const existing = await db
     .select({ id: schema.users.id })
     .from(schema.users)
     .where(eq(schema.users.email, parsed.data.email))
-    .get();
+    .then(firstRow);
   if (existing) return { ok: false, code: "exists" };
 
   const passwordHash = await hashPassword(parsed.data.password);
-  const user = db.transaction((tx) => {
-    const u = tx
+  const user = await db.transaction(async (tx) => {
+    const u = await tx
       .insert(schema.users)
       .values({
         email: parsed.data.email,
@@ -51,8 +57,8 @@ export async function signUp(form: FormData): Promise<Result> {
         timezone: validTimezone(parsed.data.timezone),
       })
       .returning({ id: schema.users.id })
-      .get();
-    ensureUserSetup(u.id, tx);
+      .then(oneRow);
+    await ensureUserSetup(u.id, tx);
     return u;
   });
   await createSession(user.id);
@@ -66,14 +72,19 @@ export async function logIn(form: FormData): Promise<Result> {
   });
   if (!parsed.success) {
     const field = parsed.error.issues[0]?.path[0];
-    return { ok: false, code: field === "password" ? "password_missing" : "email" };
+    return {
+      ok: false,
+      code: field === "password" ? "password_missing" : "email",
+    };
   }
-  const user = getDb()
+  const user = await getDb()
     .select()
     .from(schema.users)
     .where(eq(schema.users.email, parsed.data.email))
-    .get();
-  const ok = user ? await verifyPassword(parsed.data.password, user.passwordHash) : false;
+    .then(firstRow);
+  const ok = user
+    ? await verifyPassword(parsed.data.password, user.passwordHash)
+    : false;
   if (!user || !ok) return { ok: false, code: "invalid" };
   await createSession(user.id);
   return { ok: true };
