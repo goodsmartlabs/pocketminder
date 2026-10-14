@@ -26,3 +26,16 @@ describe("Postgres schema", () => {
     await client.close();
   });
 });
+
+describe("database URL", () => {
+  it("prefers DATABASE_URL and accepts the Supabase integration's POSTGRES_URL", async () => {
+    const { databaseUrl } = await import("@/lib/db");
+    expect(databaseUrl({ DATABASE_URL: "postgres://a@h:5432/d", POSTGRES_URL: "postgres://b@h/d" })).toBe(
+      "postgres://a@h:5432/d",
+    );
+    expect(
+      databaseUrl({ POSTGRES_URL: "postgres://u:p@pooler.supabase.com:6543/postgres?sslmode=require&supa=base-pooler.x" }),
+    ).toBe("postgres://u:p@pooler.supabase.com:6543/postgres?sslmode=require");
+    expect(() => databaseUrl({})).toThrow();
+  });
+});

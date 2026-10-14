@@ -10,7 +10,8 @@ PocketMinder is a Next.js app backed by **Postgres**. The production setup is:
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | yes | Postgres connection string. On Supabase use the **Transaction pooler** URI (port `6543`). |
+| `DATABASE_URL` | yes* | Postgres connection string. On Supabase use the **Transaction pooler** URI (port `6543`). |
+| `POSTGRES_URL` | * | Used when `DATABASE_URL` is unset. The Supabase ↔ Vercel integration sets it automatically. |
 | `CRON_SECRET` | recommended | Protects `GET /api/cron/notifications`. Vercel Cron sends it automatically. |
 | `DATABASE_POOL_SIZE` | no | Connections per server instance (default `5`). |
 | `COOKIE_SECURE` | no | Set to `false` **only** when serving over plain HTTP. |
@@ -29,8 +30,9 @@ After changing `src/lib/db/schema.ts`, run `npm run db:generate` and apply the n
 ## Vercel
 
 1. Import the GitHub repo in Vercel (framework preset: Next.js; no build settings needed).
-2. Add `DATABASE_URL` and `CRON_SECRET` under **Settings → Environment Variables** (Production),
-   then redeploy.
+2. Connect the database: either install the **Supabase integration** for the project (Supabase
+   dashboard → Project Settings → Integrations → Vercel), which sets `POSTGRES_URL` for you, or add
+   `DATABASE_URL` yourself. Optionally add `CRON_SECRET`. Then redeploy.
 3. **Settings → Domains**: add `pocketminder.innergency.com` and create the DNS record Vercel shows
    (a `CNAME` to `cname.vercel-dns.com` for a subdomain).
 4. Check `https://pocketminder.innergency.com/api/health` → `{"status":"ok", ...}`.
